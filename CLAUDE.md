@@ -44,3 +44,4 @@ urgency: low | normal | high
 - `docs/SESSION_HANDOFF.md` — статус/нитка/следующий шаг (обновляет `/close_session`, читает `/start`).
 - `/start` — синхра репо + mailbox-check от brain + чтение handoff.
 - `/close_session` — сохранить состояние, всё на origin через PR (brain не трогать).
+- `/obriv` — восстановление после обрыва связи (самопроверка целостности + продолжение).
