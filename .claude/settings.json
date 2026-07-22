@@ -31,17 +31,5 @@
       "Bash(git push:* main)",
       "Bash(git push:* master)"
     ]
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/scripts/session-title.js"
-          }
-        ]
-      }
-    ]
   }
 }
