@@ -1,0 +1,22 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Tool-local AI state (shared instructions are deliberately tracked)
+.claude/settings.local.json
+.codex/
+.gemini/
+
+# Logs, caches and editor/OS files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+node_modules/
+.next/
+dist/
+coverage/
