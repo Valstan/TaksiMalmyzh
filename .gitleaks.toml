@@ -1,0 +1,29 @@
+# Кастомные правила gitleaks поверх дефолтных (~195 правил бинаря).
+# Причина (#170: пробуй гейт классом, который реально течёт): наш будущий реальный
+# класс утечки — ключ карт-провайдера (Яндекс.Карты / 2ГИС) в форме apikey=<uuid>,
+# а дефолтные правила ловят его ненадёжно (entropy hex-UUID гуляет около порога 3.5).
+
+title = "TaksiMalmyzh — кастомные правила поверх дефолтных"
+
+[extend]
+# Расширяем дефолтный конфиг, вшитый в бинарь gitleaks
+# (https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml)
+useDefault = true
+
+[[rules]]
+id = "taksi-apikey-uuid"
+description = "apikey=<uuid> — ключ карт-провайдера в форме UUID"
+# Go-regexp (без lookahead). secretGroup = 1 — сам UUID.
+regex = '''(?i)\bapi[_-]?key\s*[=:]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?'''
+secretGroup = 1
+# entropy намеренно не задан: regex строгий (формат UUID), а Shannon-энтропия
+# hex-UUID близка к порогу 3.5 — фильтр по энтропии мог бы пропустить реальный ключ.
+keywords = ["apikey", "api_key", "api-key"]
+
+  [rules.allowlist]
+  regexTarget = "match"
+  regexes = [
+    # плейсхолдеры из документации/шаблонов
+    '''00000000-0000-0000-0000-000000000000''',
+    '''(?i)xxxxxxxx-xxxx''',
+  ]
