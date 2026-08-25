@@ -8,7 +8,7 @@ description: Старт сессии «Такси» — синхра тольк�
 2. **Входящие от brain — два канала, без синхронизации чужого репо:**
    - **Локально:** прочитай файлы в корне `../brain_matrica/mailboxes/TaksiMalmyzh/from-brain/*.md` (НЕ `DRAFTS/`, НЕ `ARCHIVE/`); read-only, не pull'ить.
    - **GitHub `main`:** список писем того же пути без clone/fetch/pull:
-     `gh api "repos/Valstan/brain_matrica/contents/mailboxes/TaksiMalmyzh/from-brain?ref=main" --jq '.[].name'`.
+     `gh api "repos/Valstan/brain_matrica/contents/mailboxes/TaksiMalmyzh/from-brain?ref=main" --jq '.[] | select(.type=="file") | .name'`.
    - **Набор писем = объединение** каналов. Письмо есть только на GitHub → читай его содержимое:
      `gh api "repos/Valstan/brain_matrica/contents/mailboxes/TaksiMalmyzh/from-brain/<файл>?ref=main" -H "Accept: application/vnd.github.raw"`.
    - **Одноимённое письмо различается** → свежесть по истории именно этого пути: незакоммиченная локальная правка (`git -C ../brain_matrica status --porcelain -- <путь>`) — свежее; иначе сравни последний локальный коммит файла (`git -C ../brain_matrica log -1 --format=%cI -- <путь>`) с последним коммитом пути на GitHub (`gh api "repos/Valstan/brain_matrica/commits?path=<путь>&per_page=1" --jq '.[0].commit.committer.date'`). Порядок не определяется → прочитай обе версии, явно отметь конфликт, ничего не перезаписывай.
