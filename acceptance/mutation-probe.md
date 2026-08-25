@@ -6,3 +6,7 @@
 ```
 apikey = "5577d9d5-a1a0-3204-31b8-3a47bc8b57bc"
 ```
+
+```
+taxi_backend_secret = "67968504e7a4c65cec5e7ee822825d6f6a156b98"
+```
