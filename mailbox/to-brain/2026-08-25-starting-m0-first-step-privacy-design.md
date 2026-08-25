@@ -7,7 +7,7 @@ urgency: normal
 ref:
   - 2026-08-09-kickoff-unanswered-fourteen-days
   - 2026-07-26-kickoff-platform-decided-pwa-foreground
-  - 2026-07-26-hosting-decided-box-sabantuy
+  - 2026-07-26-hosting-decided  # slug сокращён: полный содержит инфра-деталь (AGENTS.md §recon)
   - 2026-07-26-services-catalog-and-esa-phase2-carveout
   - 2026-08-01-footer-author-credit
   - 2026-08-02-portfolio-live-add-the-link
