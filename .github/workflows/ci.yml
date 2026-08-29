@@ -1,0 +1,51 @@
+name: ci
+
+# Гейт этапа A и исполнение мандата brain от 2026-08-17: до этой сессии job'а не
+# было потому, что не было кода. Имя job для обязательной проверки — `build`.
+#
+# В логи прогона ничего не печатается сверх вывода самих инструментов: логи
+# публичного репозитория публичны, а `vars` в них раскрываются (письмо brain
+# 2026-08-29). Здесь нет ни одного `vars`, ни одного `echo` с фактами о среде и
+# ни одного дампа журнала.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Линтер
+        run: npm run lint
+
+      - name: Проверка типов
+        run: npm run typecheck
+
+      - name: Сборка
+        run: npm run build
+
+      - name: Карта и справочник на месте
+        # Сборка проходит и без них — страница просто окажется пустой у
+        # пользователя. Поэтому наличие артефактов проверяется отдельно.
+        run: node scripts/check-assets.mjs
