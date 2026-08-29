@@ -12,6 +12,7 @@
 
 # Logs, caches and editor/OS files
 *.log
+geoblock-report.txt
 .DS_Store
 Thumbs.db
 .idea/
