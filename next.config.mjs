@@ -1,3 +1,4 @@
+import { withPayload } from "@payloadcms/next/withPayload";
 // В режиме разработки React использует eval() для восстановления стека ошибок.
 // В сборке этого нет, поэтому послабление действует только на dev-стенде и в прод
 // не уезжает.
@@ -62,4 +63,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withPayload(nextConfig);

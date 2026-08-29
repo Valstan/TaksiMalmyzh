@@ -169,3 +169,150 @@ body {
 .page-footer a {
   color: inherit;
 }
+
+/* справочник */
+
+.dir-section h2 {
+  margin: 1.2rem 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.dir-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.dir-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.dir-name {
+  font-weight: 600;
+}
+
+.dir-phones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.dir-phone {
+  display: inline-block;
+  padding: 0.45rem 0.8rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 0.4rem;
+  color: inherit;
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.dir-phone:hover,
+.dir-phone:focus-visible {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.dir-prices {
+  margin: 0.45rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.dir-note {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* форма предложения */
+
+.suggest {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.suggest h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+}
+
+.suggest-form {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.6rem;
+  max-width: 26rem;
+}
+
+.suggest-form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.suggest-form input,
+.suggest-form select {
+  padding: 0.55rem 0.7rem;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+}
+
+.suggest-form button {
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  justify-self: start;
+}
+
+.suggest-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.suggest-done {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.suggest-error {
+  color: var(--accent);
+  margin: 0;
+}
+
+/* шапка-навигация */
+
+.top-nav {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+}
+
+.top-nav a {
+  display: inline-block;
+  padding: 0.4rem 0.85rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 0.4rem;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+}
