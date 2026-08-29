@@ -18,7 +18,8 @@
     "data:addresses": "python scripts/build_address_index.py",
     "predev": "node scripts/copy-map-worker.mjs",
     "prebuild": "node scripts/copy-map-worker.mjs",
-    "package": "node scripts/package-release.mjs"
+    "package": "node scripts/package-release.mjs",
+    "db:setup": "node scripts/setup-local-db.mjs"
   },
   "dependencies": {
     "@protomaps/basemaps": "5.7.2",
