@@ -26,3 +26,4 @@ coverage/
 public/map/maplibre/
 tsconfig.tsbuildinfo
 next-env.d.ts
+release/

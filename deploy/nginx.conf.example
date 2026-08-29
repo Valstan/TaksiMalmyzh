@@ -1,0 +1,51 @@
+# Секция nginx на боксе. Скопировать, подставив значения в угловых скобках.
+#
+# Главное, что здесь неочевидно: слушаем ТОЛЬКО :80. Внешние 80 и 443 терминирует
+# прокси хостера и форвардит оба на внутренний :80 с X-Forwarded-Proto. Свой :443
+# снаружи недостижим, certbot для внешнего 443 бесполезен — сертификат ставится
+# через панель хостера (G150).
+
+server {
+    listen 80;
+    server_name <домен>;
+
+    # Редирект на https — ТОЛЬКО по X-Forwarded-Proto. По $scheme получается петля:
+    # внутрь всегда приходит http, сколько бы раз браузер ни возвращался.
+    if ($http_x_forwarded_proto = "http") {
+        return 301 https://$host$request_uri;
+    }
+
+    # Пока приложение не готово к этапу B, стенд закрывается здесь — и тогда
+    # IP посторонних в логи не попадают вместе с их запросами к приложению.
+    # auth_basic "closed";
+    # auth_basic_user_file <путь к файлу паролей>;
+
+    # Карта, глифы и спрайты неизменны между релизами и уже помечены immutable
+    # самим приложением. Отдаём их напрямую, не тревожа Node.
+    location /map/ {
+        alias <каталог приложения>/current/public/map/;
+        # Range-запросы обязательны: браузер читает .pmtiles диапазонами байт,
+        # без них карта не работает вообще.
+        add_header Accept-Ranges bytes;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:<локальный порт>;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        proxy_set_header X-Forwarded-Host $host;
+
+        # X-Forwarded-For намеренно НЕ ставится: приложению адрес посетителя не
+        # нужен ни для чего, а как только он приходит — он попадает в логи и
+        # ошибки. Меньше чужих персональных данных в системе (M0.A §3.6).
+
+        proxy_read_timeout 60s;
+    }
+
+    client_max_body_size 1m;
+}

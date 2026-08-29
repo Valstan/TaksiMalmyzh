@@ -27,6 +27,8 @@ npm run dev
 npm run map:extract && npm run map:assets && npm run data:addresses
 ```
 
+Выкатка на прод — [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 Стенд намеренно не открыт наружу: логи веб-сервера с IP посетителей — это уже чужие
 персональные данные, а значит этап B ([`docs/GO_LIVE_CHECKLIST.md`](docs/GO_LIVE_CHECKLIST.md)).
 
