@@ -21,3 +21,8 @@ node_modules/
 .next/
 dist/
 coverage/
+
+# сгенерированные копии воркера MapLibre
+public/map/maplibre/
+tsconfig.tsbuildinfo
+next-env.d.ts
