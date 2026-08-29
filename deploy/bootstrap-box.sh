@@ -74,7 +74,8 @@ systemctl enable "$SERVICE" >/dev/null
 echo "  юнит $SERVICE поставлен и включён (запустится после первой выкатки)"
 
 echo "· nginx"
-NGINX_CONF="/etc/nginx/sites-available/$SERVICE"
+# На этом боксе nginx собирает конфиги из conf.d, схемы sites-available нет.
+NGINX_CONF="/etc/nginx/conf.d/$SERVICE.conf"
 sed -e "s|<домен>|$DOMAIN|g" \
     -e "s|<каталог приложения>|$APP_DIR|g" \
     -e "s|<локальный порт>|$APP_PORT|g" \
@@ -89,10 +90,9 @@ if [ -n "$CLOSED" ]; then
   echo "  стенд закрыт basic-auth"
 fi
 
-ln -sfn "$NGINX_CONF" "/etc/nginx/sites-enabled/$SERVICE"
 nginx -t
 systemctl reload nginx
-echo "  секция nginx поставлена"
+echo "  секция nginx поставлена: $NGINX_CONF"
 
 echo
 echo "Готово. Дальше:"
