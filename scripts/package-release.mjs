@@ -27,8 +27,9 @@ if (!existsSync(STANDALONE)) {
 await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
 
-// 1. рантайм
-await cp(STANDALONE, OUT, { recursive: true });
+// 1. рантайм. dereference: standalone содержит симлинки на трассированные пакеты,
+// а создание симлинка на Windows требует привилегий — копируем содержимое.
+await cp(STANDALONE, OUT, { recursive: true, dereference: true });
 
 // 2. статика сборки — её Next не кладёт в standalone
 await cp(path.join(".next", "static"), path.join(OUT, ".next", "static"), { recursive: true });

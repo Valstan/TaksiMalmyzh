@@ -37,6 +37,10 @@ jobs:
 
       - name: Сборка
         # На боксе сборка не помещается в память, поэтому она здесь (G20).
+        env:
+          # Заглушки, не секреты: рантайм-значения живут в shared/.env на боксе.
+          PAYLOAD_SECRET: build-placeholder
+          DATABASE_URI: postgres://build:build@127.0.0.1:5432/build
         run: npm run build
 
       - name: Релизный пакет

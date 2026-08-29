@@ -17,11 +17,14 @@ export default function Home() {
   return (
     <main className="page">
       <header className="page-header">
-        <h1>Такси Малмыж</h1>
+        <h1>ПОЗВОНИ</h1>
         <p className="page-sub">
-          Спринт 1: карта города и поиск адреса. Записи поездок ещё нет — и персональных
-          данных тоже.
+          Карта Малмыжа, поиск адреса и справочник номеров. Персональные данные не
+          собираются.
         </p>
+        <nav className="top-nav">
+          <a href="/nomera">Справочник номеров</a>
+        </nav>
       </header>
 
       <AddressSearch onPick={setTarget} />

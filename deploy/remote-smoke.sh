@@ -58,6 +58,12 @@ check() {
   range=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -r 0-16 "$base/map/malmyzh.pmtiles")
   test "$range" = "206" || { echo "$label — карта: $range, ожидалось 206" >&2; exit 1; }
   echo "  $label карта (Range)   206"
+
+  # Справочник ходит в базу: 200 здесь значит «миграции применились и БД жива».
+  local dir
+  dir=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$base/nomera")
+  test "$dir" = "200" || { echo "$label — справочник: $dir, ожидалось 200" >&2; exit 1; }
+  echo "  $label справочник      200"
 }
 
 check "локально " "$BASE"

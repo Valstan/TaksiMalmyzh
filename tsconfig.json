@@ -6,7 +6,7 @@
       "dom.iterable",
       "ES2022"
     ],
-    "allowJs": false,
+    "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@payload-config": [
+        "./payload.config.ts"
       ]
     }
   },

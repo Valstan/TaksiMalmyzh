@@ -43,6 +43,11 @@ jobs:
         run: npm run typecheck
 
       - name: Сборка
+        env:
+          # Заглушки, не секреты: payload.config исполняется при next build,
+          # но к базе на сборке никто не подключается.
+          PAYLOAD_SECRET: build-placeholder
+          DATABASE_URI: postgres://build:build@127.0.0.1:5432/build
         run: npm run build
 
       - name: Карта и справочник на месте
