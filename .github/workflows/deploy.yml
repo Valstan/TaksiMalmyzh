@@ -74,30 +74,14 @@ jobs:
           RELEASE="$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
           ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_DIR" "$RELEASE" "$SERVICE" < deploy/remote-activate.sh
 
-      - name: Смоук на боксе
+      - name: Смоук
         env:
           TARGET: ${{ secrets.DEPLOY_TARGET }}
           SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
           APP_PORT: ${{ secrets.DEPLOY_APP_PORT }}
-        # Приложение проверяется напрямую по локальному порту, а не через домен.
-        # Иначе красный прогон смешивает три разных вопроса — работает ли релиз,
-        # доехал ли DNS, выпущен ли сертификат — и непонятно, что чинить.
-        run: ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_PORT" < deploy/remote-smoke.sh
-
-      - name: Смоук снаружи
-        env:
           SMOKE_URL: ${{ secrets.DEPLOY_SMOKE_URL }}
-        # Выполняется, только если домен уже нацелен на бокс и секрет заведён.
-        # Пропуск объявляется вслух: молчаливый пропуск читается как «проверено».
-        run: |
-          if [ -z "${SMOKE_URL:-}" ]; then
-            echo "::notice::Внешний смоук пропущен — DEPLOY_SMOKE_URL не задан (домен ещё не нацелен на бокс)."
-            exit 0
-          fi
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$SMOKE_URL/")
-          test "$code" = "200"
-          hits=$(curl -sS --max-time 30 "$SMOKE_URL/api/search?q=%D0%9F%D1%80%D0%B8%D0%B1%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F" | grep -c '"kind"')
-          test "$hits" -ge 1
-          range=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -r 0-16 "$SMOKE_URL/map/malmyzh.pmtiles")
-          test "$range" = "206"
-          echo "внешний смоук пройден"
+        # Обе проверки — с бокса, включая публичную. Раннер GitHub стоит за границей
+        # и до этого хоста не достучался: curl отдал таймаут за 30 с, хотя сайт при
+        # этом работал. Проверка с раннера была бы вечно красной и научила бы
+        # игнорировать красный цвет — а это хуже, чем её отсутствие.
+        run: ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_PORT" "$SMOKE_URL" < deploy/remote-smoke.sh
