@@ -17,7 +17,8 @@
     "map:assets": "python scripts/fetch_map_assets.py",
     "data:addresses": "python scripts/build_address_index.py",
     "predev": "node scripts/copy-map-worker.mjs",
-    "prebuild": "node scripts/copy-map-worker.mjs"
+    "prebuild": "node scripts/copy-map-worker.mjs",
+    "package": "node scripts/package-release.mjs"
   },
   "dependencies": {
     "@protomaps/basemaps": "5.7.2",

@@ -1,0 +1,44 @@
+# systemd-юнит приложения. Скопировать, подставив значения в угловых скобках.
+#
+# Реальные путь и порт в репозиторий не пишутся (AGENTS.md, recon-поверхность) —
+# они в карточке проекта на стороне brain.
+
+[Unit]
+Description=TaksiMalmyzh (Next.js standalone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<пользователь приложения>
+WorkingDirectory=<каталог приложения>/current
+
+# Слушаем только localhost: наружу публикует nginx бокса, напрямую служба
+# из интернета доступна быть не должна.
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=<локальный порт>
+Environment=NODE_ENV=production
+
+# Секреты — отдельным файлом вне репозитория и вне релизного пакета.
+EnvironmentFile=-<каталог приложения>/shared/.env
+
+ExecStart=/usr/bin/node server.js
+
+Restart=on-failure
+RestartSec=3
+
+# Приложение не должно уметь ничего лишнего.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=<каталог приложения>
+
+# Журнал не должен превращаться в хранилище чужих данных: при падении systemd
+# пишет в общий журнал, а туда не место ни адресам посетителей, ни строкам
+# подключения к базе (письмо brain 2026-08-29 о recon в логах).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

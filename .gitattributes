@@ -1,0 +1,18 @@
+# Репозиторий возит shell-скрипты на Linux-сервер. Скрипт с CRLF там не запускается
+# вовсе — ядро видит `/usr/bin/env bash\r` и отвечает «bad interpreter». Сейчас
+# переносы правильные, но это следствие настроек конкретной машины; здесь оно
+# закрепляется явно, чтобы не зависеть от них.
+
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.mjs  text eol=lf
+*.py   text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+
+# Бинарное — не трогать и не пытаться сливать построчно.
+*.pmtiles binary
+*.pbf     binary
+*.png     binary
+*.woff2   binary
