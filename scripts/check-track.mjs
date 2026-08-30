@@ -37,14 +37,20 @@ if (!uri) {
 // Ключ шифрования для проверки — одноразовый, в репозиторий не попадает.
 process.env.TRACK_ENCRYPTION_KEY = `1:${randomBytes(32).toString("base64")}`;
 
-const { TRACK_DDL_UP } = await import("../lib/track-ddl.ts");
+// Модули приёма читают DATABASE_URI из окружения — подставляем до их импорта.
+process.env.DATABASE_URI = uri;
+
+const { TRACK_DDL_UP, TRACK_DDL_WRITE_TOKEN_UP } = await import("../lib/track-ddl.ts");
 const crypto = await import("../lib/track-crypto.ts");
 const maint = await import("../lib/track-maintenance.ts");
+const trips = await import("../lib/track-trips.ts");
+const gate = await import("../lib/track-gate.ts");
 
 let failed = 0;
 const ok = (m) => console.log(`✓ ${m}`);
 const fail = (m) => { console.error(`✗ ${m}`); failed++; };
 const eq = (a, b, m) => (a === b ? ok(`${m}: ${a}`) : fail(`${m}: получено ${a}, ожидалось ${b}`));
+const utcToday = () => new Date().toISOString().slice(0, 10);
 
 // Схема `track` поднимается в рабочей базе разработчика и сносится в конце: роль проекта
 // намеренно не имеет права CREATEDB (npm run db:setup отзывает лишнее), и заводить ради
@@ -86,7 +92,37 @@ try {
 
   await pool.query(`DROP SCHEMA IF EXISTS track CASCADE`);
   await pool.query(TRACK_DDL_UP);
+  await pool.query(TRACK_DDL_WRITE_TOKEN_UP);
   ok("DDL применился");
+
+  // --- гейт этапа A: запись закрыта по умолчанию
+  //
+  // Стенд открыт наружу, и открытый эндпоинт записи означал бы, что поездку может записать
+  // посторонний — то есть переход на этап B без единого решения владельца. Гейт проверяется
+  // здесь, а не только глазами в коде, потому что цена ошибки — пересечённая граница.
+  {
+    const req = (token) =>
+      new Request("https://x/api/track", token ? { headers: { authorization: `Bearer ${token}` } } : {});
+    const saveR = process.env.TRACK_RECORDING;
+    const saveT = process.env.TRACK_ETAP_A_TOKEN;
+
+    delete process.env.TRACK_RECORDING;
+    delete process.env.TRACK_ETAP_A_TOKEN;
+    eq(gate.checkRecordingGate(req("whatever")).status, 404, "без переменных запись закрыта, код");
+
+    process.env.TRACK_RECORDING = "on";
+    eq(gate.checkRecordingGate(req("whatever")).status, 404, "включена без токена — всё равно закрыта");
+
+    process.env.TRACK_ETAP_A_TOKEN = "etap-a-secret-9f3c";
+    eq(gate.checkRecordingGate(req("")).status, 401, "без предъявленного токена");
+    eq(gate.checkRecordingGate(req("wrong-token")).status, 401, "с неверным токеном");
+    gate.checkRecordingGate(req("etap-a-secret-9f3c")).ok
+      ? ok("с верным токеном запись разрешена")
+      : fail("верный токен не пропущен");
+
+    if (saveR === undefined) delete process.env.TRACK_RECORDING; else process.env.TRACK_RECORDING = saveR;
+    if (saveT === undefined) delete process.env.TRACK_ETAP_A_TOKEN; else process.env.TRACK_ETAP_A_TOKEN = saveT;
+  }
 
   const DAY = "2026-09-07";                       // понедельник
   const startedAt = new Date("2026-09-07T08:00:00Z");
@@ -188,6 +224,49 @@ try {
     crypto.openPoint(tripKey, trip.id, 42, startedAt.getTime(), tampered);
     fail("правка байта шифротекста не обнаружена — целостности нет");
   } catch { ok("правка байта шифротекста обнаружена"); }
+
+  // --- приём через настоящие функции старта и приёма, а не в обход
+  //
+  // Выше точки вставлялись напрямую, чтобы проверить механику партиций. Здесь проверяется
+  // путь, которым пойдёт клиент: startTrip выдаёт токен записи, ingestPoints его требует.
+  {
+    const h = await trips.startTrip("install-через-апи");
+    h.writeToken.length >= 40 ? ok("startTrip выдал токен записи") : fail("токен записи короткий");
+    eq(h.day, utcToday(), "day поездки — дата старта в UTC");
+
+    const batch = (from, to) =>
+      Array.from({ length: to - from }, (_, k) => ({ seq: from + k, point: mkPoint(from + k) }));
+
+    const r1 = await trips.ingestPoints(h.tripId, h.writeToken, batch(0, 40));
+    eq(r1.ok && r1.accepted, 40, "принято через ingestPoints");
+    const r2 = await trips.ingestPoints(h.tripId, h.writeToken, batch(0, 40));
+    eq(r2.ok && r2.accepted, 0, "повтор через ingestPoints вставил");
+    const r3 = await trips.ingestPoints(h.tripId, h.writeToken, batch(20, 60));
+    eq(r3.ok && r3.accepted, 20, "досылка с перекрытием через ingestPoints");
+
+    // Внутренний trip_id — маленькое целое и перебирается за секунды. Без токена приём был
+    // бы открыт любому, кто умеет считать, поэтому чужой токен обязан выглядеть как
+    // «поездки нет», а не как «поездка есть, но не ваша».
+    const bad = await trips.ingestPoints(h.tripId, "чужой-токен", batch(100, 101));
+    (!bad.ok && bad.reason === "not_found")
+      ? ok("чужой токен записи отклонён и не выдаёт существование поездки")
+      : fail(`чужой токен не отклонён: ${JSON.stringify(bad)}`);
+
+    await trips.finishTrip(h.tripId, h.writeToken);
+    const closed = await trips.ingestPoints(h.tripId, h.writeToken, batch(200, 201));
+    (!closed.ok && closed.reason === "closed")
+      ? ok("в закрытую поездку дописать нельзя")
+      : fail("закрытая поездка приняла точку");
+
+    const tooMany = await trips.ingestPoints(h.tripId, h.writeToken, batch(0, trips.MAX_BATCH + 1));
+    (!tooMany.ok && tooMany.reason === "too_many")
+      ? ok(`пачка больше ${trips.MAX_BATCH} отклонена`)
+      : fail("слишком большая пачка принята");
+
+    // Убираем эту поездку, чтобы не мешать проверкам ретеншна ниже.
+    await pool.query(`DELETE FROM track.point WHERE trip_id = $1`, [h.tripId]);
+    await pool.query(`DELETE FROM track.trip WHERE id = $1`, [h.tripId]);
+  }
 
   // --- автозакрытие
   await pool.query(`UPDATE track.trip SET last_point_at = $2 WHERE id = $1`,

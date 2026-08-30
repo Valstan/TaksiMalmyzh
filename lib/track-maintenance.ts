@@ -60,7 +60,11 @@ async function logRun(c: PoolClient, job: string, ok: boolean, detail: unknown) 
  * при этом нет намеренно — при ней PostgreSQL запрещает DETACH CONCURRENTLY, и каждый
  * ретеншн-прогон блокировал бы приём (проверено, TRIP_SCHEMA.md §3).
  */
-export async function ensurePartitions(pool: Pool, now: Date): Promise<string[]> {
+export async function ensurePartitions(
+  pool: Pool,
+  now: Date,
+  opts: { log?: boolean } = {},
+): Promise<string[]> {
   const c = await pool.connect();
   const made: string[] = [];
   try {
@@ -76,7 +80,9 @@ export async function ensurePartitions(pool: Pool, now: Date): Promise<string[]>
       made.push(name);
       from = to;
     }
-    await logRun(c, "ensure_partitions", true, { made });
+    // Старт поездки вызывает эту же функцию, и писать строку журнала на каждую поездку
+    // незачем: журнал прогонов нужен, чтобы видеть работу расписания, а не трафик.
+    if (opts.log !== false) await logRun(c, "ensure_partitions", true, { made });
     return made;
   } finally {
     c.release();
