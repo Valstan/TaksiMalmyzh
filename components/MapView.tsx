@@ -12,6 +12,10 @@ import {
   setWorkerUrl,
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
+// Версия берётся из самого пакета, а не пишется руками: путь к воркеру обязан
+// меняться вместе с MapLibre (см. scripts/copy-map-worker.mjs), а константа,
+// которую надо не забыть поднять, однажды не поднимается.
+import { version as maplibreVersion } from "maplibre-gl/package.json";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -41,7 +45,11 @@ export default function MapView({ target }: { target: Hit | null }) {
     // подставляя соседний файл; под сборщиком это путь чанка, соседа нет, и карта
     // остаётся серой. Файлы кладёт scripts/copy-map-worker.mjs — на нашу статику,
     // чтобы и здесь наружу не уходило ни одного запроса.
-    setWorkerUrl("/map/maplibre/maplibre-gl-worker.mjs");
+    //
+    // Версия в пути обязательна: /map/ отдаётся с `immutable` на год, и адрес —
+    // единственный способ сообщить браузеру, что файл другой. Разбор — в шапке
+    // scripts/copy-map-worker.mjs.
+    setWorkerUrl(`/map/maplibre/${maplibreVersion}/maplibre-gl-worker.mjs`);
 
     // MapLibre не умеет читать .pmtiles сам — протокол добавляется пакетом pmtiles.
     const protocol = new Protocol();
