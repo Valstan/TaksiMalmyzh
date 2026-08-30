@@ -1,4 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Гейт этапа A для эндпоинтов записи поездки.
 //
@@ -30,10 +32,31 @@ function hash(s: string): Buffer {
   return createHash("sha256").update(s, "utf8").digest();
 }
 
+/**
+ * Ожидаемый токен: сперва systemd-credential, потом переменная окружения.
+ *
+ * Credential не из симметрии с ключом шифрования, а по существу: переменные окружения
+ * процесса читаются соседями по общему боксу через `/proc/<pid>/environ`, а сосед, узнавший
+ * токен, сможет писать поездки в нашу систему — то есть заводить чужие персональные данные.
+ * Это ровно та граница A→B, которую гейт и защищает, так что защищать надо и сам токен.
+ */
+function expectedToken(): string | undefined {
+  const dir = process.env.CREDENTIALS_DIRECTORY;
+  if (dir) {
+    try {
+      const v = readFileSync(join(dir, "etap_a_token"), "utf8").trim();
+      if (v) return v;
+    } catch {
+      /* credential не подан — падаем на переменную окружения */
+    }
+  }
+  return process.env.TRACK_ETAP_A_TOKEN;
+}
+
 export function checkRecordingGate(request: Request): GateResult {
   if (process.env.TRACK_RECORDING !== "on") return { ok: false, status: 404 };
 
-  const expected = process.env.TRACK_ETAP_A_TOKEN;
+  const expected = expectedToken();
   // Включить запись, забыв задать токен, — это открыть её всему интернету. Такая
   // комбинация трактуется как «выключено», а не как «включено без пароля».
   if (!expected) return { ok: false, status: 404 };
