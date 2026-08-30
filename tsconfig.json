@@ -13,6 +13,10 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    // Явное расширение .ts в относительных импортах: модули lib/track-* запускает не только
+    // Next, но и обычный node из scripts/check-track.mjs, а он без расширения их не найдёт.
+    // Проверять схему до прода важнее, чем привычный вид импорта.
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",

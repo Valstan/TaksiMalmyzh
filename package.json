@@ -19,7 +19,8 @@
     "predev": "node scripts/copy-map-worker.mjs",
     "prebuild": "node scripts/copy-map-worker.mjs",
     "package": "node scripts/package-release.mjs",
-    "db:setup": "node scripts/setup-local-db.mjs"
+    "db:setup": "node scripts/setup-local-db.mjs",
+    "check:track": "node scripts/check-track.mjs"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "^3.88.0",
