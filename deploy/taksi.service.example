@@ -22,6 +22,18 @@ Environment=NODE_ENV=production
 # Секреты — отдельным файлом вне репозитория и вне релизного пакета.
 EnvironmentFile=-<каталог приложения>/shared/.env
 
+# Мастер-ключ шифрования трасс подаётся credential'ом, а НЕ переменной окружения
+# (решение владельца 2026-08-30): бокс общий с тремя проектами, а переменные окружения
+# процесса читаются соседями через /proc/<pid>/environ. Credential systemd кладёт в
+# приватный tmpfs, доступный только этой службе; приложение читает его по пути
+# $CREDENTIALS_DIRECTORY/track_key (lib/track-crypto.ts).
+#
+# Строка ниже закомментирована в шаблоне намеренно: на боксе она ставится drop-in'ом
+# /etc/systemd/system/<служба>.service.d/track-key.conf, чтобы пережить повторный прогон
+# bootstrap-box.sh, который этот файл перезаписывает целиком.
+#
+# LoadCredential=track_key:<файл ключа вне репозитория, root:root, 600>
+
 ExecStart=/usr/bin/node server.js
 
 Restart=on-failure

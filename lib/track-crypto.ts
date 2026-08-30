@@ -6,6 +6,8 @@ import {
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Шифрование трасс. Единственное место в системе, где встречается ключ.
 //
@@ -170,14 +172,33 @@ export function openTripField(
 /**
  * Мастер-ключ эпохи. Живёт вне БД — в systemd-credential на боксе (решение владельца
  * 2026-08-30): переменная окружения читается соседями по общему боксу через
- * /proc/<pid>/environ, credential — нет.
+ * /proc/<pid>/environ, credential — нет, systemd кладёт его в приватный tmpfs службы.
  *
- * Формат переменной: `<эпоха>:<base64 32 байт>`, например `1:AAAA…`. Несколько эпох через
- * запятую — для ротации: заворачиваем новой, разворачиваем любой известной.
+ * Формат: `<эпоха>:<base64 32 байт>`, например `1:AAAA…`. Несколько эпох через запятую —
+ * для ротации: заворачиваем всегда старшей, разворачиваем любой известной.
+ *
+ * Порядок поиска — credential, потом переменная окружения. Переменная остаётся для
+ * разработки и проверок; на проде её нет, и это правильно.
  */
 function readMasterKeys(): Map<number, Buffer> {
-  const raw = process.env.TRACK_ENCRYPTION_KEY;
-  if (!raw) throw new Error("TRACK_ENCRYPTION_KEY не задан — шифровать трассы нечем");
+  let raw = process.env.TRACK_ENCRYPTION_KEY;
+
+  const credDir = process.env.CREDENTIALS_DIRECTORY;
+  if (credDir) {
+    try {
+      // Читается синхронно и один раз: ключ нужен на первом же шифровании, а credential
+      // живёт в tmpfs — цена чтения нулевая.
+      raw = readFileSync(join(credDir, "track_key"), "utf8").trim();
+    } catch {
+      // Credential не подан — падаем ниже с внятным сообщением, а не с ENOENT.
+    }
+  }
+
+  if (!raw) {
+    throw new Error(
+      "мастер-ключ трасс не найден: ни systemd-credential track_key, ни TRACK_ENCRYPTION_KEY",
+    );
+  }
   const out = new Map<number, Buffer>();
   for (const part of raw.split(",")) {
     const [epochStr, b64] = part.trim().split(":");

@@ -14,7 +14,9 @@
 //
 // Схема `track` в конце сносится. Если в ней уже есть поездки, проверка НЕ запускается.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import pg from "pg";
 
@@ -63,6 +65,25 @@ try {
       process.exit(1);
     }
   }
+  // --- ключ из systemd-credential имеет приоритет над переменной окружения
+  //
+  // На проде переменной TRACK_ENCRYPTION_KEY нет вовсе: ключ подаётся credential'ом, потому
+  // что переменные окружения процесса читаются соседями по общему боксу через
+  // /proc/<pid>/environ. Если приоритет однажды сломается, прод молча возьмёт не тот ключ —
+  // а «не тот ключ» это нечитаемые трассы, обнаруживаемые в худший момент.
+  {
+    const dir = mkdtempSync(join(tmpdir(), "track-cred-"));
+    // Эпоха в credential нарочно другая: так видно, ЧТО именно прочиталось.
+    writeFileSync(join(dir, "track_key"), `7:${randomBytes(32).toString("base64")}\n`);
+    process.env.CREDENTIALS_DIRECTORY = dir;
+    crypto.resetKeyCacheForTests();
+    eq(crypto.currentEpoch(), 7, "эпоха ключа прочитана из credential, а не из переменной");
+    delete process.env.CREDENTIALS_DIRECTORY;
+    rmSync(dir, { recursive: true, force: true });
+    crypto.resetKeyCacheForTests();
+    eq(crypto.currentEpoch(), 1, "без credential берётся переменная окружения");
+  }
+
   await pool.query(`DROP SCHEMA IF EXISTS track CASCADE`);
   await pool.query(TRACK_DDL_UP);
   ok("DDL применился");
