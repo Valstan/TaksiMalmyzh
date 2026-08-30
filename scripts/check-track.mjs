@@ -45,6 +45,7 @@ const crypto = await import("../lib/track-crypto.ts");
 const maint = await import("../lib/track-maintenance.ts");
 const trips = await import("../lib/track-trips.ts");
 const gate = await import("../lib/track-gate.ts");
+const sched = await import("../lib/track-scheduler.ts");
 
 let failed = 0;
 const ok = (m) => console.log(`✓ ${m}`);
@@ -119,6 +120,19 @@ try {
     gate.checkRecordingGate(req("etap-a-secret-9f3c")).ok
       ? ok("с верным токеном запись разрешена")
       : fail("верный токен не пропущен");
+
+    // Credential важнее переменной — как и у ключа шифрования, и по той же причине:
+    // сосед по боксу, прочитавший токен из /proc, сможет писать чужие поездки.
+    const cdir = mkdtempSync(join(tmpdir(), "etap-cred-"));
+    writeFileSync(join(cdir, "etap_a_token"), "token-from-credential\n");
+    process.env.CREDENTIALS_DIRECTORY = cdir;
+    gate.checkRecordingGate(req("token-from-credential")).ok
+      ? ok("токен из credential принят")
+      : fail("токен из credential не принят");
+    eq(gate.checkRecordingGate(req("etap-a-secret-9f3c")).status, 401,
+      "переменная окружения перебита credential'ом");
+    delete process.env.CREDENTIALS_DIRECTORY;
+    rmSync(cdir, { recursive: true, force: true });
 
     if (saveR === undefined) delete process.env.TRACK_RECORDING; else process.env.TRACK_RECORDING = saveR;
     if (saveT === undefined) delete process.env.TRACK_ETAP_A_TOKEN; else process.env.TRACK_ETAP_A_TOKEN = saveT;
@@ -266,6 +280,31 @@ try {
     // Убираем эту поездку, чтобы не мешать проверкам ретеншна ниже.
     await pool.query(`DELETE FROM track.point WHERE trip_id = $1`, [h.tripId]);
     await pool.query(`DELETE FROM track.trip WHERE id = $1`, [h.tripId]);
+  }
+
+  // --- регламент: прогон пишет аудит, и его свежесть измерима
+  //
+  // M0.A §3.4 требует не написанной процедуры, а показанной работы расписания: отсутствие
+  // строки аудита за 25 часов — сигнал поломки. Значит строка обязана появляться даже
+  // тогда, когда делать было нечего, иначе «нет строки» перестаёт что-либо означать.
+  {
+    // Ветка «прогонов не было вовсе» проверяется явно: именно она отличает «расписание
+    // сломалось» от «расписание ещё не запускалось», и путать их нельзя.
+    await pool.query(`DELETE FROM track.maintenance_run`);
+    const before = await sched.hoursSinceLastRun();
+    before === null ? ok("без прогонов свежесть — null, а не ноль") : fail(`ожидался null, получено ${before}`);
+
+    const r = await maint.runMaintenance(pool, startedAt);
+    typeof r.runway === "number" ? ok(`прогон регламента вернул запас партиций: ${r.runway} сут`) : fail("прогон не вернул запас");
+
+    const after = await sched.hoursSinceLastRun();
+    (after !== null && after < 1)
+      ? ok("после прогона свежесть измеряется и близка к нулю")
+      : fail(`свежесть после прогона: ${after}`);
+
+    const { rows: [audit] } = await pool.query(
+      `SELECT count(*)::int n FROM track.maintenance_run WHERE job='ensure_partitions' AND ok`);
+    audit.n > 0 ? ok("прогон записал строку аудита") : fail("прогон не оставил строки аудита");
   }
 
   // --- автозакрытие

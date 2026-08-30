@@ -39,6 +39,18 @@ async function onInit(payload: Payload): Promise<void> {
     }
     payload.logger.info(`Засеяно черновиков справочника: ${directoryDraft.length} (не опубликованы)`);
   }
+
+  // Регламент трасс. M0.A §3.4 требует не написанной процедуры, а показанной работы
+  // расписания — значит кто-то должен её запускать, и это единственное место в проекте,
+  // которое исполняется ровно один раз при старте службы.
+  //
+  // Динамический импорт, а не обычный: модуль тянет за собой пул подключений к схеме
+  // track, и в сборке, где база — заглушка, он не нужен вовсе.
+  const { startMaintenanceScheduler } = await import("./lib/track-scheduler.ts");
+  startMaintenanceScheduler({
+    info: (m) => payload.logger.info(m),
+    error: (m) => payload.logger.error(m),
+  });
 }
 
 export default buildConfig({
