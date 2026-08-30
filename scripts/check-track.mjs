@@ -40,7 +40,7 @@ process.env.TRACK_ENCRYPTION_KEY = `1:${randomBytes(32).toString("base64")}`;
 // Модули приёма читают DATABASE_URI из окружения — подставляем до их импорта.
 process.env.DATABASE_URI = uri;
 
-const { TRACK_DDL_UP, TRACK_DDL_WRITE_TOKEN_UP } = await import("../lib/track-ddl.ts");
+const { TRACK_DDL_ALL } = await import("../lib/track-ddl.ts");
 const crypto = await import("../lib/track-crypto.ts");
 const maint = await import("../lib/track-maintenance.ts");
 const trips = await import("../lib/track-trips.ts");
@@ -92,8 +92,7 @@ try {
   }
 
   await pool.query(`DROP SCHEMA IF EXISTS track CASCADE`);
-  await pool.query(TRACK_DDL_UP);
-  await pool.query(TRACK_DDL_WRITE_TOKEN_UP);
+  await pool.query(TRACK_DDL_ALL);
   ok("DDL применился");
 
   // --- гейт этапа A: запись закрыта по умолчанию
@@ -101,41 +100,24 @@ try {
   // Стенд открыт наружу, и открытый эндпоинт записи означал бы, что поездку может записать
   // посторонний — то есть переход на этап B без единого решения владельца. Гейт проверяется
   // здесь, а не только глазами в коде, потому что цена ошибки — пересечённая граница.
+  //
+  // Токена, который надо вводить, больше нет: право записи даёт сессия приложения. Здесь
+  // проверяется мастер-выключатель — единственная часть гейта, которая не требует поднимать
+  // Payload. Ветка «вошёл / не вошёл» проверяется по HTTP на релизном пакете.
   {
-    const req = (token) =>
-      new Request("https://x/api/track", token ? { headers: { authorization: `Bearer ${token}` } } : {});
+    const req = () => new Request("https://x/api/track");
     const saveR = process.env.TRACK_RECORDING;
-    const saveT = process.env.TRACK_ETAP_A_TOKEN;
 
     delete process.env.TRACK_RECORDING;
-    delete process.env.TRACK_ETAP_A_TOKEN;
-    eq(gate.checkRecordingGate(req("whatever")).status, 404, "без переменных запись закрыта, код");
+    eq((await gate.checkRecordingGate(req())).status, 404,
+      "без TRACK_RECORDING запись невидима, код");
 
-    process.env.TRACK_RECORDING = "on";
-    eq(gate.checkRecordingGate(req("whatever")).status, 404, "включена без токена — всё равно закрыта");
-
-    process.env.TRACK_ETAP_A_TOKEN = "etap-a-secret-9f3c";
-    eq(gate.checkRecordingGate(req("")).status, 401, "без предъявленного токена");
-    eq(gate.checkRecordingGate(req("wrong-token")).status, 401, "с неверным токеном");
-    gate.checkRecordingGate(req("etap-a-secret-9f3c")).ok
-      ? ok("с верным токеном запись разрешена")
-      : fail("верный токен не пропущен");
-
-    // Credential важнее переменной — как и у ключа шифрования, и по той же причине:
-    // сосед по боксу, прочитавший токен из /proc, сможет писать чужие поездки.
-    const cdir = mkdtempSync(join(tmpdir(), "etap-cred-"));
-    writeFileSync(join(cdir, "etap_a_token"), "token-from-credential\n");
-    process.env.CREDENTIALS_DIRECTORY = cdir;
-    gate.checkRecordingGate(req("token-from-credential")).ok
-      ? ok("токен из credential принят")
-      : fail("токен из credential не принят");
-    eq(gate.checkRecordingGate(req("etap-a-secret-9f3c")).status, 401,
-      "переменная окружения перебита credential'ом");
-    delete process.env.CREDENTIALS_DIRECTORY;
-    rmSync(cdir, { recursive: true, force: true });
+    // Выключатель отвечает на вопрос «открыт ли этап записи вообще» и обязан закрывать
+    // дверь раньше, чем начнётся разговор о том, кто пришёл.
+    process.env.TRACK_RECORDING = "off";
+    eq((await gate.checkRecordingGate(req())).status, 404, "TRACK_RECORDING=off — тоже 404");
 
     if (saveR === undefined) delete process.env.TRACK_RECORDING; else process.env.TRACK_RECORDING = saveR;
-    if (saveT === undefined) delete process.env.TRACK_ETAP_A_TOKEN; else process.env.TRACK_ETAP_A_TOKEN = saveT;
   }
 
   const DAY = "2026-09-07";                       // понедельник
@@ -266,7 +248,16 @@ try {
       ? ok("чужой токен записи отклонён и не выдаёт существование поездки")
       : fail(`чужой токен не отклонён: ${JSON.stringify(bad)}`);
 
-    await trips.finishTrip(h.tripId, h.writeToken);
+    // Причина завершения — вход для лестницы эскалации спринта 4. Поездка, закрытая
+    // таймером после неподвижности и трёх неотвеченных напоминаний, может означать не
+    // «забыл выключить», а «что-то случилось»; постфактум их не отличить — трасса у обеих
+    // одинаковая, стоит на месте.
+    await trips.finishTrip(h.tripId, h.writeToken, "idle");
+    const { rows: [fr] } = await pool.query(
+      `SELECT finish_reason, state FROM track.trip WHERE id = $1`, [h.tripId]);
+    eq(fr.finish_reason, "idle", "причина завершения записана");
+    eq(fr.state, 1, "поездка закрыта");
+
     const closed = await trips.ingestPoints(h.tripId, h.writeToken, batch(200, 201));
     (!closed.ok && closed.reason === "closed")
       ? ok("в закрытую поездку дописать нельзя")
@@ -369,7 +360,7 @@ try {
   // Схема пересоздаётся пустой, а не сносится: миграция в payload_migrations помечена
   // применённой, и база разработчика без схемы разошлась бы со своим же журналом миграций.
   await pool.query(`DROP SCHEMA IF EXISTS track CASCADE`).catch(() => {});
-  await pool.query(TRACK_DDL_UP).catch(() => {});
+  await pool.query(TRACK_DDL_ALL).catch(() => {});
   await pool.end();
   console.log("схема track очищена и пересоздана пустой");
 }

@@ -177,16 +177,28 @@ export async function ingestPoints(
   }
 }
 
+/**
+ * Причина завершения. `user` — нажал человек; `idle` — таймер клиента после неподвижности
+ * и трёх неотвеченных напоминаний.
+ *
+ * Различие несёт смысл, а не отчётность: `idle` может означать не «забыл выключить», а
+ * «что-то случилось», и это единственный признак, по которому спринт 4 сможет решать,
+ * поднимать ли тревогу. Постфактум их не отличить — трасса у обеих одинаковая.
+ */
+export type FinishReason = "user" | "idle";
+
 export async function finishTrip(
   tripId: number,
   writeToken: string,
+  reason: FinishReason = "user",
   now = new Date(),
 ): Promise<{ ok: boolean }> {
   const t = await authorize(tripId, writeToken);
   if (!t) return { ok: false };
   await trackPool().query(
-    `UPDATE track.trip SET state = 1, ended_at = $2 WHERE id = $1 AND state = 0`,
-    [t.id, now],
+    `UPDATE track.trip SET state = 1, ended_at = $2, finish_reason = $3
+      WHERE id = $1 AND state = 0`,
+    [t.id, now, reason],
   );
   return { ok: true };
 }

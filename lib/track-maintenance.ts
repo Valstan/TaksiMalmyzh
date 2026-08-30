@@ -118,7 +118,7 @@ export async function closeAbandoned(pool: Pool, now: Date): Promise<{ abandoned
   try {
     const cutoff = new Date(now.getTime() - ABANDON_HOURS * 3600000);
     const ab = await c.query(
-      `UPDATE track.trip SET state = 2, ended_at = last_point_at
+      `UPDATE track.trip SET state = 2, ended_at = last_point_at, finish_reason = 'abandoned'
         WHERE state = 0 AND last_point_at IS NOT NULL AND last_point_at < $1
         RETURNING id`,
       [cutoff],

@@ -131,3 +131,39 @@ ALTER TABLE track.trip ADD COLUMN write_token_hash bytea;
 export const TRACK_DDL_WRITE_TOKEN_DOWN = `
 ALTER TABLE track.trip DROP COLUMN IF EXISTS write_token_hash;
 `;
+
+// Причина завершения поездки — миграция 20260830_233000_finish_reason.
+//
+// Не украшение отчётности. Поездка, завершённая человеком, и поездка, которую завершил
+// таймер после того, как телефон четверть часа не двигался и на три напоминания никто не
+// ответил, — это два РАЗНЫХ события, и второе может означать не «забыл выключить», а
+// «что-то случилось». Различить их постфактум нельзя ничем другим: трасса у обеих
+// одинаковая — стоит на месте.
+//
+// Без этой колонки лестница эскалации спринта 4 (M0.A §5.3) не имеет входа.
+export const TRACK_DDL_FINISH_REASON_UP = `
+ALTER TABLE track.trip ADD COLUMN finish_reason text;
+COMMENT ON COLUMN track.trip.finish_reason IS
+  'user — завершил человек; idle — таймер после неподвижности и неотвеченных напоминаний; abandoned — сервер после 6 ч молчания';
+`;
+
+export const TRACK_DDL_FINISH_REASON_DOWN = `
+ALTER TABLE track.trip DROP COLUMN IF EXISTS finish_reason;
+`;
+
+/**
+ * Схема целиком, в порядке миграций.
+ *
+ * Существует потому, что на этом уже обожглись: проверка `scripts/check-track.mjs` в конце
+ * пересоздаёт схему, и пересоздавала она её ОДНИМ базовым DDL — без последующих ALTER'ов.
+ * База после этого расходилась с `payload_migrations`, который считает те миграции
+ * применёнными и повторять их не станет: колонок нет, а по журналу они есть. Ошибка
+ * всплывала не в проверке, а позже и в другом месте — при первом же запросе к приложению.
+ *
+ * Любая новая миграция схемы `track` обязана попасть сюда же.
+ */
+export const TRACK_DDL_ALL = [
+  TRACK_DDL_UP,
+  TRACK_DDL_WRITE_TOKEN_UP,
+  TRACK_DDL_FINISH_REASON_UP,
+].join("\n");

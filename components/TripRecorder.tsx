@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   closeSegment,
   decide,
@@ -31,7 +32,6 @@ type Session = {
 };
 
 const LS_INSTALL = "taksi.installId";
-const LS_TOKEN = "taksi.etapAToken";
 const LS_SESSION = "taksi.trip.session";
 const LS_QUEUE = "taksi.trip.queue";
 
@@ -39,6 +39,35 @@ const LS_QUEUE = "taksi.trip.queue";
 const FLUSH_MS = 15_000;
 /** ...и не реже, чем накопится столько точек. */
 const FLUSH_POINTS = 25;
+
+// Лестница «человек забыл выключить запись».
+//
+// Мировая практика трекеров (Strava, Runkeeper, Garmin, водительские приложения) сводится к
+// трём шагам: автопауза на околонулевой скорости через минуты, напоминание через десяток
+// минут, автозавершение через полчаса-час. Числа ниже в этом коридоре и намеренно ближе к
+// его нижней границе: у нас продукт безопасности, и висящая «активная поездка», про которую
+// все забыли, обесценивает саму идею — доверенный контакт видит запись там, где давно ничего
+// не происходит.
+//
+// ⚠️ Тот же механизм — половина «мёртвой руки» (M0.A §5.3). Неподвижность и молчание
+// означают ЛИБО «забыл выключить», ЛИБО «что-то случилось», и различить их нельзя ничем,
+// кроме вопроса самому человеку. Поэтому напоминания — это не удобство, а дискриминатор:
+// ответил — забыл; не ответил трижды — повод для тревоги, и завершение помечается `idle`.
+//
+// ⚠️ Числа подлежат настройке на реальных поездках: M0.A §5.3 прямо называет порог
+// «норма или тревога» центральной нерешённой задачей, а §8.6 оставляет бюджет ложных
+// срабатываний за владельцем. Здесь они собраны в одном месте, чтобы правка была правкой
+// числа, а не поиском по коду.
+const IDLE = {
+  /** Ниже этой скорости считаем, что стоим (та же величина, что в политике выборки). */
+  speedMs: 1,
+  /** Сколько стоять до первого напоминания. */
+  firstMs: 10 * 60_000,
+  /** Пауза между напоминаниями. */
+  repeatMs: 5 * 60_000,
+  /** Сколько напоминаний до автозавершения. */
+  count: 3,
+} as const;
 
 function readLS<T>(key: string): T | null {
   try {
@@ -74,13 +103,16 @@ export default function TripRecorder() {
   // читается при инициализации состояния, а не эффектом: эффект дал бы лишний рендер и
   // мигание пустого поля, а правило react-hooks/set-state-in-effect право по существу.
   const [phase, setPhase] = useState<Phase>(() => (readLS<Session>(LS_SESSION) ? "paused" : "idle"));
-  const [token, setToken] = useState(() => {
-    try { return localStorage.getItem(LS_TOKEN) ?? ""; } catch { return ""; }
-  });
   const [error, setError] = useState<string | null>(null);
+  const [needLogin, setNeedLogin] = useState(false);
   const [recorded, setRecorded] = useState(0);
   const [queued, setQueued] = useState(() => readLS<Queued[]>(LS_QUEUE)?.length ?? 0);
+  /** Сколько напоминаний «вы ещё пишете?» уже показано без ответа. */
+  const [nagCount, setNagCount] = useState(0);
+  /** Поездку закрыл таймер, а не человек — это надо сказать прямо, а не молча закрыть. */
+  const [autoFinished, setAutoFinished] = useState(false);
   const [lastFixAgoS, setLastFixAgoS] = useState<number | null>(null);
+  const [stillMin, setStillMin] = useState(0);
   const [accuracyM, setAccuracyM] = useState<number | null>(null);
 
   // Восстановление из хранилища читается ровно один раз ленивым инициализатором состояния,
@@ -101,28 +133,43 @@ export default function TripRecorder() {
   const wakeLock = useRef<WakeLockSentinel | null>(null);
   const lastFixAt = useRef<number | null>(null);
   const flushing = useRef(false);
+  /**
+   * Когда в последний раз наблюдалось движение — от него отсчитывается неподвижность.
+   * `null` до старта поездки: `Date.now()` в теле рендера — нечистый вызов, и лестница
+   * напоминаний всё равно начинает считать только с момента старта.
+   */
+  const movingSince = useRef<number | null>(null);
+  /** Когда показано последнее напоминание; null — лестница не начата. */
+  const nagAt = useRef<number | null>(null);
+  /** Счётчик напоминаний в ссылке: состояние нужно только для показа, решение — по нему. */
+  const nagCountRef = useRef(0);
 
   // Возраст последнего фикса — то самое «явное состояние записи» (M0.A §2.1): человек
   // должен видеть, что запись идёт, а не догадываться.
   useEffect(() => {
     const t = setInterval(() => {
-      setLastFixAgoS(lastFixAt.current === null ? null : Math.round((Date.now() - lastFixAt.current) / 1000));
+      const now = Date.now();
+      setLastFixAgoS(lastFixAt.current === null ? null : Math.round((now - lastFixAt.current) / 1000));
+      // Считается здесь, а не в рендере: и `Date.now()`, и чтение ссылки во время рендера —
+      // нечистые операции, и правило линтера про это право по существу.
+      setStillMin(movingSince.current === null ? 0 : Math.floor((now - movingSince.current) / 60_000));
     }, 1000);
     return () => clearInterval(t);
   }, []);
 
-  const api = useCallback(
-    async (body: Record<string, unknown>) => {
-      const res = await fetch("/api/track", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
-      return (await res.json()) as Record<string, unknown>;
-    },
-    [token],
-  );
+  // Вводить нечего: право записи даёт обычная сессия приложения (cookie), та же, что и в
+  // админке. Секрета, который надо где-то прочитать и куда-то ввести, больше нет — а
+  // значит, нечему и утекать.
+  const api = useCallback(async (body: Record<string, unknown>) => {
+    const res = await fetch("/api/track", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return (await res.json()) as Record<string, unknown>;
+  }, []);
 
   const flush = useCallback(async () => {
     const s = session.current;
@@ -157,6 +204,14 @@ export default function TripRecorder() {
     if (!s) return;
     lastFixAt.current = Date.now();
     setAccuracyM(Math.round(pos.coords.accuracy));
+
+    // Движение сбрасывает лестницу напоминаний: человек явно едет, спрашивать не о чем.
+    const speed = typeof pos.coords.speed === "number" && !Number.isNaN(pos.coords.speed)
+      ? pos.coords.speed : null;
+    if (speed !== null && speed >= IDLE.speedMs) {
+      movingSince.current = Date.now();
+      if (nagAt.current !== null) { nagAt.current = null; setNagCount(0); }
+    }
 
     const fix: Fix = {
       lat: pos.coords.latitude,
@@ -224,8 +279,8 @@ export default function TripRecorder() {
 
   async function start() {
     setError(null);
+    setNeedLogin(false);
     try {
-      localStorage.setItem(LS_TOKEN, token);
       const r = await api({ action: "start", installId: installId() });
       session.current = {
         tripId: Number(r.tripId),
@@ -239,17 +294,26 @@ export default function TripRecorder() {
       writeLS(LS_QUEUE, []);
       setRecorded(0);
       setQueued(0);
+      setNagCount(0);
+      nagCountRef.current = 0;
+      nagAt.current = null;
+      movingSince.current = Date.now();
       setPhase("recording");
       await acquireWakeLock();
       startWatch();
     } catch (e) {
-      setError(
-        e instanceof Error && e.message === "404"
-          ? "запись выключена на сервере (этап A)"
-          : e instanceof Error && e.message === "401"
-            ? "неверный ключ записи"
+      const code = e instanceof Error ? e.message : "";
+      if (code === "401") {
+        // Не ошибка, а состояние: человек просто не вошёл. Показываем ссылку на вход,
+        // а не пугающее «нет доступа».
+        setNeedLogin(true);
+      } else {
+        setError(
+          code === "404"
+            ? "запись выключена на сервере (этап A)"
             : "не удалось начать поездку",
-      );
+        );
+      }
     }
   }
 
@@ -262,20 +326,82 @@ export default function TripRecorder() {
     void flush();
   }
 
-  async function finish() {
+  const finish = useCallback(async (reason: "user" | "idle" = "user") => {
     stopWatch();
     closeSegment(sampler.current);
     await flush();
     const s = session.current;
     if (s) {
-      try { await api({ action: "finish", tripId: s.tripId, writeToken: s.writeToken }); } catch { /* закроет автозакрытие */ }
+      try {
+        await api({ action: "finish", tripId: s.tripId, writeToken: s.writeToken, reason });
+      } catch { /* не дошло — закроет серверное автозакрытие через 6 ч */ }
     }
     try { await wakeLock.current?.release(); } catch { /* уже отпущен */ }
     wakeLock.current = null;
     localStorage.removeItem(LS_SESSION);
     session.current = null;
+    nagAt.current = null;
+    setNagCount(0);
     setPhase("finished");
-  }
+    setAutoFinished(reason === "idle");
+  }, [api, flush, stopWatch]);
+
+  /** Напоминание должно быть заметно с закрытыми глазами: вибрация плюс короткий сигнал. */
+  const nudge = useCallback(() => {
+    try { navigator.vibrate?.([300, 150, 300]); } catch { /* нет вибромотора */ }
+    try {
+      // Звук через WebAudio, а не <audio src>: файла нет, а внешних запросов у нас
+      // не бывает по правилу проекта. Разрешение на звук уже есть — человек нажимал «начать».
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880;
+      gain.gain.value = 0.15;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+      setTimeout(() => void ctx.close(), 700);
+    } catch { /* звук не обязателен */ }
+  }, []);
+
+  // Лестница «вы ещё пишете?» — она же половина «мёртвой руки» (M0.A §5.3).
+  //
+  // Неподвижность и молчание означают ЛИБО «забыл выключить», ЛИБО «что-то случилось».
+  // Различить это можно только вопросом самому человеку: ответил — забыл, не ответил
+  // трижды — повод для тревоги. Поэтому завершение помечается `idle`, а не `user`.
+  useEffect(() => {
+    if (phase !== "recording") return;
+    const t = setInterval(() => {
+      if (movingSince.current === null || Date.now() - movingSince.current < IDLE.firstMs) return;
+
+      const since = nagAt.current;
+      if (since === null) {
+        nagAt.current = Date.now();
+        nagCountRef.current = 1;
+        setNagCount(1);
+        nudge();
+        return;
+      }
+      if (Date.now() - since < IDLE.repeatMs) return;
+
+      nagAt.current = Date.now();
+      nagCountRef.current += 1;
+      setNagCount(nagCountRef.current);
+      if (nagCountRef.current > IDLE.count) void finish("idle");
+      else nudge();
+    }, 10_000);
+    return () => clearInterval(t);
+  }, [phase, nudge, finish]);
+
+  /** Человек ответил «я здесь» — лестница сбрасывается, поездка продолжается. */
+  const stillHere = useCallback(() => {
+    movingSince.current = Date.now();
+    nagAt.current = null;
+    nagCountRef.current = 0;
+    setNagCount(0);
+  }, []);
 
   const stale = lastFixAgoS !== null && lastFixAgoS > 30;
 
@@ -283,17 +409,13 @@ export default function TripRecorder() {
     <section className="rec">
       {phase === "idle" && (
         <>
-          <label className="search-label" htmlFor="rec-token">Ключ записи (этап A)</label>
-          <input
-            id="rec-token"
-            className="search-input"
-            type="password"
-            autoComplete="off"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="выдаётся владельцем"
-          />
-          <button className="rec-btn" onClick={start} disabled={!token}>Начать поездку</button>
+          <button className="rec-btn" onClick={() => void start()}>Начать поездку</button>
+          {needLogin && (
+            <p className="rec-error">
+              Нужно войти в приложение — <Link href="/admin">открыть вход</Link>. Вводить ничего
+              больше не потребуется: право записи даёт сам вход.
+            </p>
+          )}
           <p className="page-sub">
             Запись идёт только пока экран включён и эта страница открыта. Это свойство
             продукта, а не ограничение: скрытой слежки здесь не бывает.
@@ -310,22 +432,50 @@ export default function TripRecorder() {
                 ? `нет фиксов ${lastFixAgoS} с`
                 : "идёт запись"}
           </p>
+
+          {/* Напоминание — не всплывашка: диалог браузера блокирует поток и не виден, если
+              человек смотрит в другую сторону. Крупный блок с одной кнопкой заметен и не
+              требует прицеливаться. */}
+          {nagCount > 0 && phase === "recording" && (
+            <div className="rec-nag">
+              <p className="rec-nag-title">
+                {nagCount >= IDLE.count ? "Последнее напоминание" : "Вы ещё записываете?"}
+              </p>
+              <p className="page-sub">
+                Ничего не движется уже {stillMin} мин. Если поездка кончилась — завершите её.
+                {nagCount >= IDLE.count && " Через пять минут запись завершится сама."}
+              </p>
+              <div className="rec-row">
+                <button className="rec-btn" onClick={stillHere}>Я здесь, продолжаем</button>
+                <button className="rec-btn rec-stop" onClick={() => void finish("user")}>
+                  Завершить
+                </button>
+              </div>
+            </div>
+          )}
+
           <p className="page-sub">
             Точек записано: <b>{recorded}</b>
             {queued > 0 && <> · ждут отправки: <b>{queued}</b></>}
             {accuracyM !== null && <> · точность ≈ {accuracyM} м</>}
           </p>
           <div className="rec-row">
-            {phase === "paused" && <button className="rec-btn" onClick={resume}>Продолжить</button>}
-            <button className="rec-btn rec-stop" onClick={finish}>Завершить поездку</button>
+            {phase === "paused" && <button className="rec-btn" onClick={() => void resume()}>Продолжить</button>}
+            <button className="rec-btn rec-stop" onClick={() => void finish("user")}>Завершить поездку</button>
           </div>
         </>
       )}
 
       {phase === "finished" && (
         <>
-          <p className="rec-state">Поездка завершена. Точек: <b>{recorded}</b>.</p>
-          <button className="rec-btn" onClick={() => setPhase("idle")}>Ещё одна</button>
+          <p className="rec-state">
+            {autoFinished
+              ? "Запись завершена сама: ничего не двигалось и на напоминания никто не ответил."
+              : "Поездка завершена."} Точек: <b>{recorded}</b>.
+          </p>
+          <button className="rec-btn" onClick={() => { setAutoFinished(false); setPhase("idle"); }}>
+            Ещё одна
+          </button>
         </>
       )}
 

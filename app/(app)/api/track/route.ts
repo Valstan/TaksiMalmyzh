@@ -39,13 +39,6 @@ function parsePoint(raw: unknown): TrackPoint | null {
 }
 
 export async function POST(request: Request) {
-  const gate = checkRecordingGate(request);
-  if (!gate.ok) {
-    return gate.status === 404
-      ? new NextResponse("Not Found", { status: 404 })
-      : NextResponse.json({ error: "Нет доступа." }, { status: 401 });
-  }
-
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -54,6 +47,21 @@ export async function POST(request: Request) {
   }
 
   const action = body.action;
+
+  // Сессия требуется только на СТАРТЕ поездки. Дальше поездка живёт своим токеном записи,
+  // и это не небрежность, а требование сценария: поездка длится часами, сессия может
+  // истечь по дороге, и тогда точки уже начатой поездки некуда было бы девать.
+  if (action === "start") {
+    const gate = await checkRecordingGate(request);
+    if (!gate.ok) {
+      return gate.status === 404
+        ? new NextResponse("Not Found", { status: 404 })
+        : NextResponse.json({ error: "Нужно войти в приложение." }, { status: 401 });
+    }
+  } else if (process.env.TRACK_RECORDING !== "on") {
+    // Выключенная запись невидима целиком, а не только для старта.
+    return new NextResponse("Not Found", { status: 404 });
+  }
 
   if (action === "start") {
     // install_id порождается клиентом и живёт локально (M0.A §6.2.2). Сюда приезжает
@@ -93,7 +101,10 @@ export async function POST(request: Request) {
   }
 
   if (action === "finish") {
-    const done = await finishTrip(tripId, writeToken);
+    // «idle» присылает клиент, когда завершил поездку сам — после неподвижности и трёх
+    // неотвеченных напоминаний. Это не то же самое, что нажатая человеком кнопка.
+    const reason = body.reason === "idle" ? "idle" : "user";
+    const done = await finishTrip(tripId, writeToken, reason);
     return done.ok ? NextResponse.json({ ok: true }) : bad("Поездка не найдена.", 404);
   }
 
