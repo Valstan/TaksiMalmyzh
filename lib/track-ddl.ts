@@ -114,3 +114,20 @@ CREATE INDEX maintenance_run_job_idx ON track.maintenance_run (job, started_at D
 `;
 
 export const TRACK_DDL_DOWN = `DROP SCHEMA IF EXISTS track CASCADE;`;
+
+// Токен записи в поездку — добавлен отдельной миграцией 20260830_210000_write_token.
+//
+// Зачем отдельный токен, когда есть lookup_id: lookup_id отдаётся доверенному контакту по
+// ссылке (§6.4), и если бы он же разрешал дописывать точки, контакт мог бы подделывать
+// трассу. Право писать и право читать — разные права.
+//
+// Хранится ХЭШ, не сам токен (§6.4): утечка дампа не должна давать право дописывать в
+// чужую поездку. Внутренний trip_id — маленькое целое и угадывается перебором, поэтому
+// без токена приём был бы открыт любому, кто умеет считать.
+export const TRACK_DDL_WRITE_TOKEN_UP = `
+ALTER TABLE track.trip ADD COLUMN write_token_hash bytea;
+`;
+
+export const TRACK_DDL_WRITE_TOKEN_DOWN = `
+ALTER TABLE track.trip DROP COLUMN IF EXISTS write_token_hash;
+`;
