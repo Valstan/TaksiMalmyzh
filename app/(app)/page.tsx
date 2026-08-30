@@ -1,34 +1,61 @@
-"use client";
+import { headers } from "next/headers";
+import Link from "next/link";
+import { getPayload } from "payload";
+import config from "@payload-config";
+import HomeMap from "@/components/HomeMap";
+import SiteHeader from "@/components/SiteHeader";
+import DirectoryList from "@/components/DirectoryList";
+import { resolveSite, siteCategories } from "@/lib/sites";
 
-import { useState } from "react";
-import dynamic from "next/dynamic";
-import AddressSearch from "@/components/AddressSearch";
-import type { Hit } from "@/components/MapView";
+// Главная зависит от домена (матрёшка, `lib/sites.ts`) и на категорийных
+// доменах ходит в базу — пререндерить нельзя ни то, ни другое.
+export const dynamic = "force-dynamic";
 
-// MapLibre работает только в браузере: на сервере нет ни canvas, ни WebGL.
-const MapView = dynamic(() => import("@/components/MapView"), {
-  ssr: false,
-  loading: () => <div className="map-holder map-loading">Карта загружается…</div>,
-});
+export default async function Home() {
+  const site = resolveSite((await headers()).get("host"));
+  const categories = siteCategories(site);
 
-export default function Home() {
-  const [target, setTarget] = useState<Hit | null>(null);
+  // На категорийном домене номера — это и есть продукт: человек пришёл на
+  // `такси.вмалмыже.рф` за телефоном такси, а не за картой. Карта остаётся
+  // ниже, потому что адрес всё равно приходится называть в трубку.
+  const entries = categories
+    ? (
+        await (
+          await getPayload({ config })
+        ).find({
+          collection: "entries",
+          // Гейт публикации живёт в access-правиле коллекции; `overrideAccess:
+          // false` — чтобы страница ходила по тем же правилам, что и весь мир.
+          overrideAccess: false,
+          where: { category: { in: categories } },
+          limit: 200,
+          sort: "name",
+        })
+      ).docs
+    : [];
 
   return (
     <main className="page">
-      <header className="page-header">
-        <h1>ПОЗВОНИ</h1>
-        <p className="page-sub">
-          Карта Малмыжа, поиск адреса и справочник номеров. Персональные данные не
-          собираются.
-        </p>
-        <nav className="top-nav">
-          <a href="/nomera">Справочник номеров</a>
-        </nav>
-      </header>
+      <SiteHeader site={site} page="home" />
 
-      <AddressSearch onPick={setTarget} />
-      <MapView target={target} />
+      {categories && (
+        <>
+          {entries.length > 0 ? (
+            <DirectoryList entries={entries} showHeadings={categories.length > 1} />
+          ) : (
+            <p className="page-sub">
+              Номера появляются в справочнике после проверки. Пока пусто —{" "}
+              <Link href="/nomera">предложите свой</Link>.
+            </p>
+          )}
+          <p className="page-sub">
+            Цены справочные, не оферта: уточняйте при звонке.{" "}
+            <Link href="/nomera">Весь раздел →</Link>
+          </p>
+        </>
+      )}
+
+      <HomeMap />
 
       <footer className="page-footer">
         <p>
