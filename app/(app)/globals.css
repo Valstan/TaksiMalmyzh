@@ -340,3 +340,64 @@ body {
 .site-crumbs a:focus-visible {
   color: var(--accent);
 }
+
+/* запись поездки (этап A) */
+
+.rec {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rec-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.rec-btn {
+  padding: 0.9rem 1.2rem;
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.rec-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rec-stop {
+  background: color-mix(in srgb, var(--accent) 35%, #444);
+}
+
+/* Состояние записи — крупно и однозначно: человек должен видеть, что запись идёт,
+   а не догадываться (M0.A §2.1). */
+.rec-state {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.rec-live::before {
+  content: "● ";
+  color: #1e8e3e;
+}
+
+.rec-broken {
+  color: var(--accent);
+}
+
+.rec-broken::before {
+  content: "▲ ";
+}
+
+.rec-error {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
