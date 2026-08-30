@@ -25,6 +25,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # PostgreSQL нужен одной проверке — сквозной проверке схемы трасс. Она поднимает схему
+    # тем же DDL, что уходит миграцией, и прогоняет приём, идемпотентность, шифрование,
+    # свёртку и удаление по возрасту. Схема поездок стоит 2× по объёму при ошибке и не
+    # переделывается дёшево (M0.A §4.5) — такую вещь нельзя проверять только на прод-базе.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+        ports:
+          - 5432:5432
+
     steps:
       - uses: actions/checkout@v5
 
@@ -54,3 +69,8 @@ jobs:
         # Сборка проходит и без них — страница просто окажется пустой у
         # пользователя. Поэтому наличие артефактов проверяется отдельно.
         run: node scripts/check-assets.mjs
+
+      - name: Схема трасс на живом PostgreSQL
+        env:
+          DATABASE_URI: postgres://postgres:ci@127.0.0.1:5432/ci
+        run: npm run check:track
