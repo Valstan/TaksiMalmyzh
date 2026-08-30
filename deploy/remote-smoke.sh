@@ -25,12 +25,19 @@
 # читается по пути и в standalone включается явно), Range к карте (без него карта не
 # работает вообще).
 #
-# Аргументы: <локальный порт> [<публичный URL> ...]
+# ⚠️ Чего смоук НЕ проверяет и проверить не может: что карта НАРИСОВАЛАСЬ. Он видит
+# файлы и типы, а рисование — это WebGL в браузере. Проверять карту глазами и только
+# на выведенной вперёд вкладке: в скрытой не срабатывает requestAnimationFrame, и
+# MapLibre навсегда остаётся с незагруженным стилем — серый прямоугольник без единой
+# ошибки, неотличимый от настоящей поломки (docs/SESSION_HANDOFF.md).
+#
+# Аргументы: <локальный порт> <версия maplibre> [<публичный URL> ...]
 
 set -euo pipefail
 
 PORT="${1:?не задан порт}"
-shift
+MAPLIBRE_VERSION="${2:?не задана версия maplibre}"
+shift 2
 BASE="http://127.0.0.1:$PORT"
 TRIES=10
 
@@ -65,6 +72,23 @@ check() {
   range=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -r 0-16 "$base/map/malmyzh.pmtiles")
   test "$range" = "206" || { echo "$label — карта: $range, ожидалось 206" >&2; exit 1; }
   echo "  $label карта (Range)   206"
+
+  # Воркер MapLibre — проверяется ТИП, а не только код ответа. 2026-08-30 карта была
+  # сломана у пользователей именно типом: nginx не знал расширения .mjs и отдавал
+  # воркер как application/octet-stream, а модульный скрипт с не-JS типом браузер
+  # исполнять отказывается. Смоук тогда был зелёным — он спрашивал «файл отдаётся?»,
+  # а надо было «чем отдаётся?». Путь версионный (docs/DOMAINS.md, scripts/copy-map-worker.mjs),
+  # поэтому версия приходит аргументом из CI, а не зашита здесь.
+  local wtype
+  wtype=$(curl -sS -o /dev/null -w '%{content_type}' --max-time 20 \
+          "$base/map/maplibre/$MAPLIBRE_VERSION/maplibre-gl-worker.mjs")
+  case "$wtype" in
+    application/javascript*|text/javascript*)
+      echo "  $label воркер карты    $wtype" ;;
+    *)
+      echo "$label — воркер MapLibre отдан как «$wtype», а нужен JS-тип: карта будет серой" >&2
+      exit 1 ;;
+  esac
 
   # Справочник ходит в базу: 200 здесь значит «миграции применились и БД жива».
   local dir

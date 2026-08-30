@@ -94,4 +94,9 @@ jobs:
         # склеивает аргументы в строку, и та разбирается на той стороне (G30). Здесь
         # это ровно то, что нужно — в URL пробелов не бывает, — но подчёркнуто явно,
         # потому что обычно этот слой парсинга и есть источник сюрпризов.
-        run: ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_PORT" "$SMOKE_URL" < deploy/remote-smoke.sh
+        #
+        # Версия MapLibre берётся из package-lock, а не пишется в скрипт: путь к воркеру
+        # версионный (docs/DOMAINS.md), и зашитая в двух местах версия однажды разойдётся.
+        run: |
+          MAPLIBRE=$(node -p "require('./node_modules/maplibre-gl/package.json').version")
+          ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_PORT" "$MAPLIBRE" "$SMOKE_URL" < deploy/remote-smoke.sh
