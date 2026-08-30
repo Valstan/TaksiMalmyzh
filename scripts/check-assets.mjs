@@ -62,6 +62,26 @@ for (const path of [
   }
 }
 
+// --- воркер MapLibre: без него карта серая, и молча
+
+try {
+  const { createRequire } = await import("node:module");
+  const { version } = createRequire(import.meta.url)("maplibre-gl/package.json");
+  const dir = `public/map/maplibre/${version}`;
+
+  // Проверяются оба файла: воркер импортирует shared относительным путём, и
+  // отсутствие второго ломает так же тихо, как отсутствие первого — воркер
+  // умирает внутри себя, главный поток об этом не узнаёт, карта остаётся серой
+  // без единой ошибки в консоли. Ровно это и случилось 2026-08-30.
+  for (const name of ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"]) {
+    const info = await stat(`${dir}/${name}`);
+    if (info.size === 0) fail(`${dir}/${name}: пустой файл`);
+  }
+  ok(`воркер MapLibre на месте: ${dir}`);
+} catch (e) {
+  fail(`воркер MapLibre не на месте (${e.message}) — карта будет серой`);
+}
+
 // --- адресный справочник
 
 try {
