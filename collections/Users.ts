@@ -1,7 +1,13 @@
 import type { CollectionConfig } from "payload";
 
-// Пользователи админки. Это НЕ пассажиры: пассажиры Фазы 1 псевдонимны и аккаунтов
-// не имеют (M0.A). Здесь живёт супер-админ и, позже, кабинеты бизнесов (спринт 8).
+// Пользователи. Две роли:
+//  - `superadmin` — владелец/персонал: админка, модерация, запись поездок этапа A;
+//  - `user` — посетитель, вошедший через единый вход экосистемы (решение владельца
+//    2026-09-02: вход через ВК с автосозданием аккаунта). В админку не попадает.
+//
+// Забор M0.A §10 при этом цел: аккаунт посетителя НЕ соединяется с трассами — запись
+// поездок по-прежнему только у `superadmin` (lib/track-gate.ts), пока владелец не решит
+// открыть её посетителям (это этап B: чужие персональные данные).
 export const Users: CollectionConfig = {
   slug: "users",
   labels: { singular: "Пользователь", plural: "Пользователи" },
@@ -20,20 +26,38 @@ export const Users: CollectionConfig = {
   },
   admin: { useAsTitle: "username" },
   access: {
-    // Только вошедшие видят и правят пользователей; наружу коллекция закрыта.
-    read: ({ req }) => Boolean(req.user),
-    create: ({ req }) => Boolean(req.user),
-    update: ({ req }) => Boolean(req.user),
-    delete: ({ req }) => Boolean(req.user),
+    // В админку — только персонал. Посетитель с сессией остаётся на сайте.
+    admin: ({ req }) => req.user?.role === "superadmin",
+    // Персонал видит всех; посетитель — только себя (query-constraint, действует и в REST).
+    read: ({ req }) =>
+      req.user?.role === "superadmin" ? true : req.user ? { id: { equals: req.user.id } } : false,
+    // Заводит, правит и удаляет пользователей только персонал. Автосоздание при первом
+    // входе через ЕСА идёт локальным API с overrideAccess — не через это правило.
+    create: ({ req }) => req.user?.role === "superadmin",
+    update: ({ req }) => req.user?.role === "superadmin",
+    delete: ({ req }) => req.user?.role === "superadmin",
   },
   fields: [
     {
       name: "role",
       type: "select",
       label: "Роль",
-      options: [{ label: "Супер-админ", value: "superadmin" }],
-      defaultValue: "superadmin",
+      options: [
+        { label: "Супер-админ", value: "superadmin" },
+        { label: "Посетитель", value: "user" },
+      ],
+      defaultValue: "user",
       required: true,
+      // Роль не поднимается ничьей рукой, кроме персонала.
+      access: { update: ({ req }) => req.user?.role === "superadmin" },
+    },
+    {
+      // Имя из ЕСА (claim `name`) — показывается в шапке сайта. Для персонала пусто:
+      // им показывать имя незачем, а логин и так есть.
+      name: "name",
+      type: "text",
+      label: "Имя",
+      admin: { description: "Как представился в едином входе." },
     },
     {
       // Устойчивый `sub` из ID-токена ЕСА — один на человека для всех сервисов

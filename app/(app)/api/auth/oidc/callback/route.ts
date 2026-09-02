@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exchangeCode, oidcConfig } from "@/lib/oidc";
+import { exchangeCode, oidcConfig, randomToken, type Identity } from "@/lib/oidc";
 import { FLOW_COOKIE, flowCookieOptions, parseFlow } from "@/lib/oidc-flow";
 import { issuePayloadSession } from "@/lib/oidc-session";
 import type { User } from "@/payload-types";
@@ -13,13 +13,21 @@ import type { User } from "@/payload-types";
 
 export const dynamic = "force-dynamic";
 
-const ADMIN_PATH = "/admin";
-
 function page(text: string, status: number) {
   return new NextResponse(text, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8" },
   });
+}
+
+/**
+ * Логин для автосозданного посетителя. Логин обязателен у коллекции, а человеку он не
+ * нужен — он входит через ЕСА. Берём хэш `sub`, а не сам `sub`: логин виден персоналу
+ * в списке пользователей, а идентификатор чужой системы там ни к чему.
+ */
+async function usernameFor(sub: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sub));
+  return `esa_${Buffer.from(digest).toString("hex").slice(0, 16)}`;
 }
 
 export async function GET(request: Request) {
@@ -54,7 +62,7 @@ export async function GET(request: Request) {
   const { default: config } = await import("@payload-config");
   const payload = await getPayload({ config });
 
-  let identity;
+  let identity: Identity;
   try {
     identity = await exchangeCode(cfg, code, flow.verifier, flow.nonce);
   } catch (e) {
@@ -68,7 +76,7 @@ export async function GET(request: Request) {
     limit: 1,
     overrideAccess: true,
   });
-  const linked = bySub.docs[0] as User | undefined;
+  let linked = bySub.docs[0] as User | undefined;
 
   if (flow.mode === "link") {
     // Привязка: живая сессия обязана быть и совпадать с тем, кто её начинал.
@@ -88,22 +96,40 @@ export async function GET(request: Request) {
       });
       payload.logger.info(`oidc: пользователь ${user.id} привязал единый вход`);
     }
-    return clear(NextResponse.redirect(new URL(ADMIN_PATH, url.origin), 302));
+    return clear(NextResponse.redirect(new URL(flow.next ?? "/admin", url.origin), 302));
   }
 
   if (!linked) {
-    // Регистрации нет: незнакомый sub — не ошибка ЕСА, а отсутствие привязки.
-    return clear(
-      page(
-        "Этот аккаунт единого входа не привязан к ПОЗВОНИ. Войдите логином и паролем, " +
-          "затем привяжите единый вход на главной странице админки.",
-        403,
-      ),
-    );
+    // Первый вход — аккаунт создаётся сам (решение владельца 2026-09-02). Роль —
+    // посетитель; в админку такой пользователь не попадает, поездки не пишет.
+    // Пароль обязателен у коллекции, но никому не известен и нигде не показывается:
+    // единственный способ входа для этого аккаунта — единый вход.
+    linked = (await payload.create({
+      collection: "users",
+      data: {
+        username: await usernameFor(identity.sub),
+        password: randomToken(48),
+        role: "user",
+        name: identity.name ?? undefined,
+        oidcSub: identity.sub,
+      },
+      overrideAccess: true,
+    })) as User;
+    payload.logger.info(`oidc: создан посетитель ${linked.id}`);
+  } else if (identity.name && identity.name !== linked.name) {
+    // Имя в ЕСА могло смениться — шапка должна показывать актуальное.
+    await payload.update({
+      collection: "users",
+      id: linked.id,
+      data: { name: identity.name },
+      overrideAccess: true,
+    });
+    linked = { ...linked, name: identity.name };
   }
 
   const session = await issuePayloadSession(payload, linked);
-  const res = NextResponse.redirect(new URL(ADMIN_PATH, url.origin), 302);
+  const fallback = linked.role === "superadmin" ? "/admin" : "/";
+  const res = NextResponse.redirect(new URL(flow.next ?? fallback, url.origin), 302);
   res.cookies.set(session.cookieName, session.token, {
     httpOnly: true,
     sameSite: "lax",

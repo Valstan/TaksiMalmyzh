@@ -5,6 +5,9 @@ import { oidcConfig } from "@/lib/oidc";
 //
 // Обычная ссылка, а не кнопка формы: начало входа — GET-редирект на ЕСА, и CSP
 // `form-action 'self'` тут ни при чём.
+//
+// ⚠️ Персоналу сначала привязать: незнакомый аккаунт ЕСА создаёт ПОСЕТИТЕЛЯ, а не
+// входит в чужую учётку — и в админку такой вход не приведёт.
 
 export function EsaLoginLink() {
   if (!oidcConfig()) return null;
@@ -12,9 +15,9 @@ export function EsaLoginLink() {
     <p style={{ margin: "1rem 0 0", textAlign: "center" }}>
       {/* Роут отвечает редиректом на чужой хост — нужна полная навигация, не <Link>. */}
       {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-      <a href="/api/auth/oidc/start">Войти через единый вход (вход.вмалмыже.рф)</a>
+      <a href="/api/auth/oidc/start?next=%2Fadmin">Войти через единый вход (вход.вмалмыже.рф)</a>
       <br />
-      <small>Работает после привязки: войдите паролем и привяжите на главной.</small>
+      <small>Для персонала — после привязки: войдите паролем и привяжите на главной.</small>
     </p>
   );
 }
