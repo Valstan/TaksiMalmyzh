@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authorizeUrl, oidcConfig, pkceChallenge, randomToken } from "@/lib/oidc";
-import { FLOW_COOKIE, flowCookieOptions, type FlowState } from "@/lib/oidc-flow";
+import { FLOW_COOKIE, flowCookieOptions, safeNext, type FlowState } from "@/lib/oidc-flow";
 
 // Начало входа через ЕСА.
 //
@@ -8,9 +8,9 @@ import { FLOW_COOKIE, flowCookieOptions, type FlowState } from "@/lib/oidc-flow"
 //  - гость → `login`: после возврата ищем пользователя по `sub`;
 //  - вошедший → `link`: после возврата привязываем `sub` к ЕГО учётке.
 //
-// Регистрации снаружи нет и не появляется: незнакомый `sub` не создаёт пользователя.
-// Привязка — единственный способ появиться в списке, и делает её тот, кто уже вошёл
-// паролем. Это удерживает этап A: «вошедший» по-прежнему ровно тот, кого завёл владелец.
+// Незнакомый `sub` в режиме `login` создаёт посетителя (роль `user`) — решение владельца
+// 2026-09-02. Персонал, вошедший паролем, привязывает свой `sub` в режиме `link`, иначе
+// первый вход через ЕСА завёл бы ему второй, посетительский аккаунт.
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +40,7 @@ export async function GET(request: Request) {
     verifier,
     mode,
     userId,
+    next: safeNext(new URL(request.url).searchParams.get("next")),
   };
 
   let target: string;

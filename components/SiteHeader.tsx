@@ -1,10 +1,15 @@
 import Link from "next/link";
+import { oidcConfig } from "@/lib/oidc";
+import { currentUser } from "@/lib/session";
 import { ECOSYSTEM_SERVICES_URL, ROOT_SITE, siteHref, type Site } from "@/lib/sites";
 
 // Шапка, объясняющая матрёшку: человек, пришедший на `такси.вмалмыже.рф`, должен
 // с первого экрана видеть и что это такси, и что такси — часть «ПОЗВОНИ», где
 // есть остальной город. Без этой строчки поддомен выглядит отдельным сайтом, и
 // весь смысл общей базы теряется.
+//
+// Здесь же вход: кнопка «Войти» ведёт в единый вход экосистемы (в том числе через
+// ВКонтакте), после входа на её месте имя и «выйти» — решение владельца 2026-09-02.
 
 /**
  * Пока `позвони.вмалмыже.рф` не заведён, «весь ПОЗВОНИ» — это полный справочник
@@ -14,7 +19,9 @@ import { ECOSYSTEM_SERVICES_URL, ROOT_SITE, siteHref, type Site } from "@/lib/si
  */
 export const WHOLE_SERVICE_FALLBACK = "/nomera?scope=all";
 
-export default function SiteHeader({
+const PAGE_PATH = { home: "/", directory: "/nomera" } as const;
+
+export default async function SiteHeader({
   site,
   page,
 }: {
@@ -23,6 +30,18 @@ export default function SiteHeader({
 }) {
   const isChild = site.id !== ROOT_SITE.id;
   const rootHref = siteHref(site, ROOT_SITE, "/", WHOLE_SERVICE_FALLBACK);
+
+  const loginEnabled = Boolean(oidcConfig());
+  const user = loginEnabled ? await currentUser() : null;
+  // Вход живёт на корневом домене (единственный redirect_uri клиента): с поддомена
+  // кнопка ведёт туда, и после входа человек остаётся на корне — там же и сессия.
+  // Кука сессии хостовая намеренно: кука на всю зону уезжала бы соседним проектам.
+  const loginHref = siteHref(
+    site,
+    ROOT_SITE,
+    `/api/auth/oidc/start?next=${encodeURIComponent(PAGE_PATH[page])}`,
+    "/api/auth/oidc/start",
+  );
 
   return (
     <header className="page-header">
@@ -51,6 +70,21 @@ export default function SiteHeader({
         <a href={ECOSYSTEM_SERVICES_URL} rel="external">
           Сервисы Малмыжа
         </a>
+        {loginEnabled &&
+          (user ? (
+            <span className="who">
+              <span aria-label="Вы вошли как">👤 {user.label}</span>
+              {user.role === "superadmin" && <Link href="/admin">админка</Link>}
+              <form action="/api/auth/logout" method="post">
+                <button type="submit">выйти</button>
+              </form>
+            </span>
+          ) : (
+            // Роут отвечает редиректом на чужой хост — нужна полная навигация, не <Link>.
+            <a href={loginHref} rel="nofollow">
+              Войти
+            </a>
+          ))}
       </nav>
     </header>
   );

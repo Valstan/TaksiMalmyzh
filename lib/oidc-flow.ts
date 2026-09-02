@@ -13,6 +13,14 @@ export interface FlowState {
   mode: "login" | "link";
   /** В режиме `link` — кому привязываем; в `callback` сверяется с живой сессией. */
   userId?: number;
+  /** Куда вернуть после входа: только путь на этом же хосте. */
+  next?: string;
+}
+
+/** Путь для возврата: относительный, без схемы и хоста — чтобы не стать открытым редиректом. */
+export function safeNext(raw: string | null | undefined): string | undefined {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return undefined;
+  return raw.length > 512 ? undefined : raw;
 }
 
 const FLOW_TTL_SECONDS = 10 * 60;
@@ -45,6 +53,7 @@ export function parseFlow(raw: string | undefined): FlowState | null {
       verifier: v.verifier,
       mode: v.mode,
       userId: typeof v.userId === "number" ? v.userId : undefined,
+      next: safeNext(v.next),
     };
   } catch {
     return null;

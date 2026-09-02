@@ -121,7 +121,11 @@ export interface UserAuthOperations {
  */
 export interface User {
   id: number;
-  role: 'superadmin';
+  role: 'superadmin' | 'user';
+  /**
+   * Как представился в едином входе.
+   */
+  name?: string | null;
   /**
    * Привязка к вход.вмалмыже.рф. Пусто — не привязан.
    */
@@ -259,6 +263,7 @@ export interface PayloadMigration {
  */
 export interface UsersSelect<T extends boolean = true> {
   role?: T;
+  name?: T;
   oidcSub?: T;
   updatedAt?: T;
   createdAt?: T;
