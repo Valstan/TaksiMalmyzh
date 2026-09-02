@@ -58,6 +58,12 @@ export default buildConfig({
     user: Users.slug,
     importMap: { baseDir: path.resolve(dirname) },
     meta: { titleSuffix: " — ПОЗВОНИ" },
+    components: {
+      // Единый вход экосистемы: ссылка под формой логина и карточка привязки на
+      // главной админки. Оба компонента сами молчат, пока OIDC_CLIENT_ID не задан.
+      beforeLogin: ["@/components/admin/EsaLoginLink#EsaLoginLink"],
+      afterDashboard: ["@/components/admin/EsaLinkCard#EsaLinkCard"],
+    },
   },
   collections: [Users, Entries],
   secret: process.env.PAYLOAD_SECRET || "",
