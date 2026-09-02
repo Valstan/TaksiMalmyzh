@@ -4,6 +4,7 @@ import * as migration_20260830_210000_write_token from './20260830_210000_write_
 import * as migration_20260830_233000_finish_reason from './20260830_233000_finish_reason';
 import * as migration_20260902_120000_oidc_sub from './20260902_120000_oidc_sub';
 import * as migration_20260902_180000_visitor_role_name from './20260902_180000_visitor_role_name';
+import * as migration_20260903_100000_share from './20260903_100000_share';
 
 export const migrations = [
   {
@@ -35,5 +36,10 @@ export const migrations = [
     up: migration_20260902_180000_visitor_role_name.up,
     down: migration_20260902_180000_visitor_role_name.down,
     name: '20260902_180000_visitor_role_name'
+  },
+  {
+    up: migration_20260903_100000_share.up,
+    down: migration_20260903_100000_share.down,
+    name: '20260903_100000_share'
   },
 ];

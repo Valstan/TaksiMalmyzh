@@ -1,5 +1,9 @@
 import { trackPool } from "./track-db.ts";
 import { partitionRunwayDays, runMaintenance } from "./track-maintenance.ts";
+import { escalateTrips } from "./track-share.ts";
+
+/** Лестница «мёртвой руки» считает минуты — и проверяется раз в минуту (M0.A §5.3). */
+const ESCALATE_EVERY_MS = 60 * 1000;
 
 // Планировщик регламента трасс.
 //
@@ -98,6 +102,24 @@ export function startMaintenanceScheduler(log: Logger): void {
 
   setTimeout(run, FIRST_DELAY_MS).unref?.();
   setInterval(run, EVERY_MS).unref?.();
+
+  // Тревога и раскрытие — отдельным, частым тиком: часовой регламент для них слишком редок,
+  // а ошибка в нём не должна останавливать лестницу. Пишет в лог только когда что-то
+  // изменилось: тихий прогон раз в минуту не должен засорять журнал.
+  const escalate = () => {
+    void (async () => {
+      if (!(await schemaReady())) return;
+      try {
+        const r = await escalateTrips(trackPool());
+        if (r.alarmed || r.calmed || r.disclosed) {
+          log.info(`мёртвая рука: тревог ${r.alarmed}, снято ${r.calmed}, раскрыто ${r.disclosed}`);
+        }
+      } catch (e) {
+        log.error(`мёртвая рука НЕ ОТРАБОТАЛА: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
+  };
+  setInterval(escalate, ESCALATE_EVERY_MS).unref?.();
   log.info(`регламент трасс: планировщик запущен, прогон раз в ${EVERY_MS / 60000} мин`);
 }
 

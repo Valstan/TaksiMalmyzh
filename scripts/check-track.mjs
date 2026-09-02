@@ -214,6 +214,81 @@ try {
     fail("подмена started_at не обнаружена");
   } catch { ok("подмена started_at обнаружена (иммутабельность криптографическая)"); }
 
+  // --- спринт 4: ссылка доступа и лестница «мёртвой руки» (M0.A §5.3, §6.3)
+  //
+  // Проверяется на той же поездке, на базе, без HTTP: правильность verifier'а, что маршрут
+  // скрыт по умолчанию, и что лестница поднимает тревогу, снимает её по «всё в порядке» и
+  // раскрывает маршрут только после окна отмены. Раскрытие необратимо — это тоже утверждение.
+  {
+    const share = await import("../lib/track-share.ts");
+    const { createHash } = await import("node:crypto");
+    const lookup = randomBytes(16);
+    const verifier = randomBytes(32).toString("base64url");
+    await pool.query(
+      `INSERT INTO track.share (trip_id, lookup_id, verifier_hash, label) VALUES ($1, $2, $3, 'маме')`,
+      [trip.id, lookup, createHash("sha256").update(verifier).digest()],
+    );
+    eq(share.parseLookup(lookup.toString("base64url"))?.length, 16, "lookup из пути разбирается");
+
+    let v = await share.resolveShare(lookup, verifier, null, startedAt);
+    eq(v.ok, true, "ссылка открывается по verifier");
+    eq(v.ok && v.view.status, "recording", "статус открытой поездки");
+    eq(v.ok && v.view.trackVisible, false, "маршрут скрыт по умолчанию");
+    eq((await share.resolveShare(lookup, "not-the-verifier-xxxxxxxx", null)).ok, false, "чужой verifier отвергнут");
+    eq((await share.resolveShare(lookup, null, 7)).ok, false, "сессия без привязки не даёт доступа");
+
+    // привязка к вошедшему: первое открытие с ключом, дальше — по сессии
+    v = await share.resolveShare(lookup, verifier, 7, startedAt);
+    eq(v.ok && v.view.boundToViewer, true, "вошедший привязан к ссылке");
+    eq((await share.resolveShare(lookup, null, 7)).ok, true, "дальше — по сессии без ключа");
+    eq((await share.resolveShare(lookup, null, 8)).ok, false, "чужая сессия — нет");
+
+    // лестница на времени поездки: silenceMin молчания → тревога
+    const min = (n) => new Date(startedAt.getTime() + n * 60_000);
+    await pool.query(`UPDATE track.trip SET last_point_at = $2 WHERE id = $1`, [trip.id, startedAt]);
+    let r = await share.escalateTrips(pool, min(share.ALARM.silenceMin - 1));
+    eq(r.alarmed, 0, "до порога тревоги нет");
+    r = await share.escalateTrips(pool, min(share.ALARM.silenceMin + 1));
+    eq(r.alarmed, 1, "тревога после порога молчания");
+    v = await share.resolveShare(lookup, verifier, null, min(share.ALARM.silenceMin + 1));
+    eq(v.ok && v.view.status, "silent", "контакт видит «данные не поступают»");
+    eq(v.ok && v.view.trackVisible, false, "маршрут ещё скрыт");
+
+    // точки снова пошли → тревога снята
+    await pool.query(`UPDATE track.trip SET last_point_at = $2 WHERE id = $1`, [trip.id, min(share.ALARM.silenceMin + 2)]);
+    r = await share.escalateTrips(pool, min(share.ALARM.silenceMin + 3));
+    eq(r.calmed, 1, "точки пошли — тревога снята");
+
+    // молчание, тревога, окно отмены → раскрытие
+    const t0 = share.ALARM.silenceMin + 2 + share.ALARM.silenceMin + 1;
+    r = await share.escalateTrips(pool, min(t0));
+    eq(r.alarmed, 1, "тревога повторно");
+    r = await share.escalateTrips(pool, min(t0 + share.ALARM.cancelWindowMin - 1));
+    eq(r.disclosed, 0, "внутри окна отмены раскрытия нет");
+    r = await share.escalateTrips(pool, min(t0 + share.ALARM.cancelWindowMin + 1));
+    eq(r.disclosed, 1, "после окна — раскрыто");
+    v = await share.resolveShare(lookup, verifier, null, min(t0 + share.ALARM.cancelWindowMin + 1));
+    eq(v.ok && v.view.status, "disclosed", "контакт видит раскрытие");
+    eq(v.ok && v.view.track.length, N, "маршрут расшифрован целиком");
+    eq(v.ok && v.view.track[42].lat, mkPoint(42).latE7 / 1e7, "координата точки 42 в маршруте");
+
+    // необратимость: точки пошли снова — раскрытие остаётся
+    await pool.query(`UPDATE track.trip SET last_point_at = $2 WHERE id = $1`, [trip.id, min(t0 + 30)]);
+    r = await share.escalateTrips(pool, min(t0 + 31));
+    eq(r.calmed, 0, "после раскрытия тревога не снимается");
+    const { rows: [d] } = await pool.query(`SELECT disclosed_at IS NOT NULL AS yes FROM track.trip WHERE id = $1`, [trip.id]);
+    eq(d.yes, true, "раскрытие необратимо");
+
+    // отзыв
+    await pool.query(`UPDATE track.share SET revoked_at = now() WHERE lookup_id = $1`, [lookup]);
+    const rv = await share.resolveShare(lookup, verifier, null);
+    eq(!rv.ok && rv.reason, "revoked", "отозванная ссылка → revoked");
+
+    // вернуть поездку в исходное для дальнейших проверок регламента
+    await pool.query(`UPDATE track.trip SET alarm_at = NULL, disclosed_at = NULL, all_ok_at = NULL, last_point_at = NULL WHERE id = $1`, [trip.id]);
+    await pool.query(`DELETE FROM track.share WHERE trip_id = $1`, [trip.id]);
+  }
+
   const tampered = Buffer.from(one.pt);
   tampered[20] ^= 1;
   try {

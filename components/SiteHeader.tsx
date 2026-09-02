@@ -74,6 +74,7 @@ export default async function SiteHeader({
           (user ? (
             <span className="who">
               <span aria-label="Вы вошли как">👤 {user.label}</span>
+              <Link href="/poezdki">поездки знакомых</Link>
               {user.role === "superadmin" && <Link href="/admin">админка</Link>}
               <form action="/api/auth/logout" method="post">
                 <button type="submit">выйти</button>

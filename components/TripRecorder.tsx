@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import ShareTripPanel from "@/components/ShareTripPanel";
 import {
   closeSegment,
   decide,
@@ -114,6 +115,13 @@ export default function TripRecorder() {
   const [lastFixAgoS, setLastFixAgoS] = useState<number | null>(null);
   const [stillMin, setStillMin] = useState(0);
   const [accuracyM, setAccuracyM] = useState<number | null>(null);
+  /**
+   * Зеркало `session` для рендера: панель «поделиться» — часть разметки, а читать ref во
+   * время рендера нельзя. Меняется вместе с session в start/finish.
+   */
+  const [activeTrip, setActiveTrip] = useState<Session | null>(() => readLS<Session>(LS_SESSION));
+  /** Последняя завершённая поездка — ссылки на неё работают и после конца (M0.A §6.4). */
+  const [lastTrip, setLastTrip] = useState<Session | null>(null);
 
   // Восстановление из хранилища читается ровно один раз ленивым инициализатором состояния,
   // а ссылки заводятся уже этим значением. Так нет ни setState в эффекте, ни правки ref
@@ -289,6 +297,7 @@ export default function TripRecorder() {
         nextSeq: 0,
       };
       writeLS(LS_SESSION, session.current);
+      setActiveTrip(session.current);
       sampler.current = newSamplerState();
       queue.current = [];
       writeLS(LS_QUEUE, []);
@@ -339,6 +348,8 @@ export default function TripRecorder() {
     try { await wakeLock.current?.release(); } catch { /* уже отпущен */ }
     wakeLock.current = null;
     localStorage.removeItem(LS_SESSION);
+    setLastTrip(s);
+    setActiveTrip(null);
     session.current = null;
     nagAt.current = null;
     setNagCount(0);
@@ -395,13 +406,19 @@ export default function TripRecorder() {
     return () => clearInterval(t);
   }, [phase, nudge, finish]);
 
-  /** Человек ответил «я здесь» — лестница сбрасывается, поездка продолжается. */
+  /**
+   * Человек ответил «я здесь» — лестница сбрасывается, поездка продолжается. Серверу тоже
+   * говорим «всё в порядке»: его лестница считает молчание независимо и могла уже поднять
+   * тревогу контактам (M0.A §5.3, окно отмены).
+   */
   const stillHere = useCallback(() => {
     movingSince.current = Date.now();
     nagAt.current = null;
     nagCountRef.current = 0;
     setNagCount(0);
-  }, []);
+    const s = session.current;
+    if (s) void api({ action: "ok", tripId: s.tripId, writeToken: s.writeToken }).catch(() => {});
+  }, [api]);
 
   const stale = lastFixAgoS !== null && lastFixAgoS > 30;
 
@@ -463,6 +480,15 @@ export default function TripRecorder() {
             {phase === "paused" && <button className="rec-btn" onClick={() => void resume()}>Продолжить</button>}
             <button className="rec-btn rec-stop" onClick={() => void finish("user")}>Завершить поездку</button>
           </div>
+
+          {activeTrip && (
+            <ShareTripPanel
+              api={api}
+              tripId={activeTrip.tripId}
+              writeToken={activeTrip.writeToken}
+              finished={false}
+            />
+          )}
         </>
       )}
 
@@ -476,6 +502,9 @@ export default function TripRecorder() {
           <button className="rec-btn" onClick={() => { setAutoFinished(false); setPhase("idle"); }}>
             Ещё одна
           </button>
+          {lastTrip && (
+            <ShareTripPanel api={api} tripId={lastTrip.tripId} writeToken={lastTrip.writeToken} finished />
+          )}
         </>
       )}
 
