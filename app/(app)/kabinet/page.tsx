@@ -6,6 +6,7 @@ import { currentUser } from "@/lib/session";
 import { marketReady, myClaims, ownedEntries, pendingClaims, requestsForOwner } from "@/lib/market";
 import CabinetOwner from "@/components/CabinetOwner";
 import CabinetStaff from "@/components/CabinetStaff";
+import { ratingsReady, ratingStats, type RatingStats } from "@/lib/ratings";
 
 // Кабинет (спринт 8). Одна страница, два лица по роли:
 //  - бизнес (владелец записи): своя карточка и вызовы с адресом;
@@ -27,9 +28,11 @@ export default async function KabinetPage() {
   let requests: Awaited<ReturnType<typeof requestsForOwner>> = [];
   let claims: Awaited<ReturnType<typeof pendingClaims>> = [];
   let pendingMine = 0;
+  let ratings = new Map<number, RatingStats>();
   if (user && ready) {
     const payload = await getPayload({ config });
     owned = await ownedEntries(payload, user.id);
+    if (owned.length && (await ratingsReady())) ratings = await ratingStats(owned.map((e) => e.id));
     requests = await requestsForOwner(payload, user.id);
     pendingMine = [...(await myClaims(user.id)).values()].filter((s) => s === 0).length;
     if (user.role === "superadmin") claims = await pendingClaims(payload);
@@ -68,7 +71,7 @@ export default async function KabinetPage() {
         </p>
       )}
 
-      {user && ready && owned.length > 0 && <CabinetOwner entries={owned} requests={requests} />}
+      {user && ready && owned.length > 0 && <CabinetOwner entries={owned} requests={requests} ratings={ratings} />}
     </main>
   );
 }

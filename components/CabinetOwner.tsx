@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { Entry } from "@/payload-types";
 import type { RequestRow } from "@/lib/market";
+import type { RatingStats } from "@/lib/ratings";
+import CabinetWorkers from "@/components/CabinetWorkers";
 
 // Кабинет владельца: карточка (описание, часы, цены) и вызовы с адресом.
 //
@@ -11,7 +13,7 @@ import type { RequestRow } from "@/lib/market";
 
 type PriceRow = { label: string; value: string };
 
-function CardForm({ entry }: { entry: Entry }) {
+function CardForm({ entry, rating }: { entry: Entry; rating?: RatingStats }) {
   const [description, setDescription] = useState(entry.description ?? "");
   const [hours, setHours] = useState(entry.hours ?? "");
   const [prices, setPrices] = useState<PriceRow[]>(
@@ -61,11 +63,12 @@ function CardForm({ entry }: { entry: Entry }) {
         </button>
         {state === "error" && <p className="suggest-error">Не сохранилось — попробуйте ещё раз.</p>}
       </div>
+      <CabinetWorkers entryId={entry.id} workers={rating?.workers ?? []} avg={rating?.avg ?? 0} count={rating?.count ?? 0} />
     </div>
   );
 }
 
-export default function CabinetOwner({ entries, requests }: { entries: Entry[]; requests: RequestRow[] }) {
+export default function CabinetOwner({ entries, requests, ratings }: { entries: Entry[]; requests: RequestRow[]; ratings?: Map<number, RatingStats> }) {
   const [rows, setRows] = useState(requests);
   const names = new Map(entries.map((e) => [e.id, e.name]));
 
@@ -114,7 +117,7 @@ export default function CabinetOwner({ entries, requests }: { entries: Entry[]; 
 
       <section className="cab">
         <h2>{entries.length > 1 ? "Мои карточки" : "Моя карточка"}</h2>
-        {entries.map((e) => <CardForm key={e.id} entry={e} />)}
+        {entries.map((e) => <CardForm key={e.id} entry={e} rating={ratings?.get(e.id)} />)}
       </section>
     </>
   );

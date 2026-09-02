@@ -4,6 +4,7 @@ import { escalateTrips } from "./track-share.ts";
 import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
 import { pruneChat } from "./track-chat.ts";
 import { marketReady, pruneRequests } from "./market.ts";
+import { pruneRatings, ratingsReady } from "./ratings.ts";
 
 /** Лестница «мёртвой руки» считает минуты — и проверяется раз в минуту (M0.A §5.3). */
 const ESCALATE_EVERY_MS = 60 * 1000;
@@ -82,6 +83,11 @@ async function tick(log: Logger): Promise<void> {
     if (await marketReady(trackPool())) {
       const reqPruned = await pruneRequests(trackPool());
       if (reqPruned) log.info(`вызовы: удалено по сроку ${reqPruned}`);
+    }
+    // Рейтинги (спринт 9): голоса старше года — вон.
+    if (await ratingsReady(trackPool())) {
+      const rp = await pruneRatings(trackPool());
+      if (rp) log.info(`рейтинги: удалено по сроку ${rp}`);
     }
     // Краудсигналы (спринт 5): строки старше срока — вон. Своя схема, свой guard.
     if (await crowdReady(trackPool())) {

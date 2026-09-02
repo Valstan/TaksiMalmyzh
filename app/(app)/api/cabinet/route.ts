@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { approveClaim, markRequest, marketReady, rejectClaim, updateOwnCard, type CardPatch } from "@/lib/market";
+import { approveClaim, markRequest, marketReady, ownedEntries, rejectClaim, updateOwnCard, type CardPatch } from "@/lib/market";
+import { addWorker, removeWorker } from "@/lib/ratings";
 
 // Действия кабинета. Владелец: card (правка своей карточки), seen/done (вызов).
 // Персонал: approve/reject (заявка на владение — после звонка по номеру).
@@ -42,6 +43,19 @@ export async function POST(request: Request) {
       if (!Number.isInteger(id)) return bad("Нужен id вызова.");
       const ok = await markRequest(payload, userId, id, body.action);
       return ok ? NextResponse.json({ ok: true }) : bad("Вызов не найден.", 404);
+    }
+    case "worker_add":
+    case "worker_remove": {
+      if (!Number.isInteger(id)) return bad("Нужен id карточки.");
+      const mine = (await ownedEntries(payload, userId)).some((e) => e.id === id);
+      if (!mine) return bad("Это не ваша карточка.", 403);
+      if (body.action === "worker_add") {
+        const w = await addWorker(id, typeof body.name === "string" ? body.name : "");
+        return w ? NextResponse.json({ ok: true, worker: w }) : bad("Имя от 2 символов, не больше 30 работников.");
+      }
+      const wid = typeof body.workerId === "number" ? body.workerId : NaN;
+      const ok = await removeWorker(id, wid);
+      return ok ? NextResponse.json({ ok: true }) : bad("Работник не найден.", 404);
     }
     case "approve":
     case "reject": {
