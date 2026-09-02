@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exchangeCode, oidcConfig, randomToken, type Identity } from "@/lib/oidc";
+import { exchangeCode, oidcConfig, publicOrigin, randomToken, type Identity } from "@/lib/oidc";
 import { FLOW_COOKIE, flowCookieOptions, parseFlow } from "@/lib/oidc-flow";
 import { issuePayloadSession } from "@/lib/oidc-session";
 import type { User } from "@/payload-types";
@@ -35,6 +35,7 @@ export async function GET(request: Request) {
   if (!cfg) return new NextResponse("Not Found", { status: 404 });
 
   const url = new URL(request.url);
+  const { origin, secure } = publicOrigin(request);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -85,7 +86,15 @@ export async function GET(request: Request) {
       return clear(page("Сессия истекла, привязка не выполнена. Войдите и повторите.", 401));
     }
     if (linked && Number(linked.id) !== Number(user.id)) {
-      return clear(page("Этот аккаунт единого входа уже привязан к другому пользователю.", 409));
+      if (linked.role !== "user") {
+        return clear(page("Этот аккаунт единого входа уже привязан к другому сотруднику.", 409));
+      }
+      // Этим аккаунтом ЕСА уже входили как посетитель (так вышло у владельца в первый
+      // же день). Посетительская учётка — пустая оболочка без данных: переносим
+      // привязку на сотрудника и убираем оболочку, чтобы не просить удалять её руками.
+      await payload.delete({ collection: "users", id: linked.id, overrideAccess: true });
+      payload.logger.info(`oidc: посетитель ${linked.id} слит в сотрудника ${user.id}`);
+      linked = undefined;
     }
     if (!linked) {
       await payload.update({
@@ -96,7 +105,7 @@ export async function GET(request: Request) {
       });
       payload.logger.info(`oidc: пользователь ${user.id} привязал единый вход`);
     }
-    return clear(NextResponse.redirect(new URL(flow.next ?? "/admin", url.origin), 302));
+    return clear(NextResponse.redirect(new URL(flow.next ?? "/admin", origin), 302));
   }
 
   if (!linked) {
@@ -129,11 +138,11 @@ export async function GET(request: Request) {
 
   const session = await issuePayloadSession(payload, linked);
   const fallback = linked.role === "superadmin" ? "/admin" : "/";
-  const res = NextResponse.redirect(new URL(flow.next ?? fallback, url.origin), 302);
+  const res = NextResponse.redirect(new URL(flow.next ?? fallback, origin), 302);
   res.cookies.set(session.cookieName, session.token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: url.protocol === "https:",
+    secure,
     path: "/",
     expires: session.expiresAt,
   });

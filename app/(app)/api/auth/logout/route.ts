@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/oidc";
 
 // Выход. POST, а не GET: ссылку на выход мог бы дёрнуть любой сторонний `<img src>`.
 // Форма в шапке проходит CSP `form-action 'self'`.
@@ -9,8 +10,8 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const url = new URL(request.url);
-  const res = NextResponse.redirect(new URL("/", url.origin), 303);
+  const { origin, secure } = publicOrigin(request);
+  const res = NextResponse.redirect(new URL("/", origin), 303);
   let cookieName = "payload-token";
 
   try {
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
   res.cookies.set(cookieName, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: url.protocol === "https:",
+    secure,
     path: "/",
     maxAge: 0,
   });
