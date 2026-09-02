@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type { ShareView } from "@/lib/track-share";
+import TripChat from "@/components/TripChat";
 
 const MapView = dynamic(() => import("@/components/MapView"), {
   ssr: false,
@@ -15,7 +16,8 @@ const MapView = dynamic(() => import("@/components/MapView"), {
 // сейчас». Возраст последней точки — крупно; состояние — словами; оборванная поездка не
 // выглядит завершённой.
 
-const POLL_MS = 20_000;
+// 10 с: страница теперь ещё и чат, ответ пассажира должен приходить без «обновите».
+const POLL_MS = 10_000;
 
 function age(s: number | null): string {
   if (s === null) return "точек ещё нет";
@@ -134,6 +136,24 @@ export default function TripView({ lookup }: { lookup: string }) {
       {view.boundToViewer && (
         <p className="page-sub">Эта поездка есть и в вашем списке «поездки знакомых».</p>
       )}
+
+      <TripChat
+        me="contact"
+        messages={view.messages}
+        disabled={view.chatClosed}
+        phone={view.contactPhone}
+        onSend={async (text) => {
+          const verifier = window.location.hash.replace(/^#/, "") || null;
+          const res = await fetch(`/api/t/${encodeURIComponent(lookup)}/chat`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ verifier, text }),
+          });
+          if (res.ok) void load();
+          return res.ok;
+        }}
+      />
     </section>
   );
 }

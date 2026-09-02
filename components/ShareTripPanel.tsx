@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ShareInfo } from "@/lib/track-share";
+import type { ChatMessage } from "@/lib/track-chat";
+import TripChat from "@/components/TripChat";
 
 // Панель «поделиться поездкой» внутри записи (M0.A §5.2, §8.7: сильный дефолт, но не гейт).
 //
@@ -20,6 +22,30 @@ export default function ShareTripPanel({
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [phone, setPhone] = useState("");
+  const [phoneSaved, setPhoneSaved] = useState(false);
+
+  // Переписка (спринт 6): опрос раз в 10 с, пока панель на экране.
+  const loadMessages = useCallback(async () => {
+    try {
+      const r = await api({ action: "messages", tripId, writeToken });
+      setMessages((r.messages as ChatMessage[]) ?? []);
+    } catch { /* нет связи — покажем, что есть */ }
+  }, [api, tripId, writeToken]);
+
+  useEffect(() => {
+    const first = setTimeout(() => void loadMessages(), 0);
+    const t = setInterval(() => void loadMessages(), 10_000);
+    return () => { clearTimeout(first); clearInterval(t); };
+  }, [loadMessages]);
+
+  async function savePhone() {
+    try {
+      await api({ action: "phone", tripId, writeToken, phone });
+      setPhoneSaved(true);
+    } catch { setNote("не удалось сохранить номер"); }
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -127,6 +153,42 @@ export default function ShareTripPanel({
             </li>
           ))}
         </ul>
+      )}
+
+      {shares.length > 0 && (
+        <>
+          <div className="share-phone">
+            <p className="page-sub">
+              Номер для связи на эту поездку — не обязательно. Увидят только те, у кого есть
+              ссылка; исчезнет вместе с поездкой.
+            </p>
+            <div className="rec-row">
+              <input
+                className="share-input"
+                inputMode="tel"
+                placeholder="+7 912 000-00-00"
+                maxLength={20}
+                value={phone}
+                onChange={(e) => { setPhone(e.target.value); setPhoneSaved(false); }}
+              />
+              <button className="rec-btn" onClick={() => void savePhone()}>
+                {phoneSaved ? "Сохранено" : "Сохранить"}
+              </button>
+            </div>
+          </div>
+
+          <TripChat
+            me="passenger"
+            messages={messages}
+            onSend={async (text) => {
+              try {
+                await api({ action: "chat", tripId, writeToken, text });
+                await loadMessages();
+                return true;
+              } catch { return false; }
+            }}
+          />
+        </>
       )}
 
       {note && <p className="page-sub">{note}</p>}

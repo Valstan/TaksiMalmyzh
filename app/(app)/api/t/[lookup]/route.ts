@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseLookup, resolveShare } from "@/lib/track-share";
+import { limited } from "@/lib/rate-limit";
 
 // Данные поездки для страницы просмотра по ссылке. POST, не GET: verifier приходит телом,
 // а не в адресе — адрес попадает в логи, тело нет (M0.A §6.3).
@@ -10,22 +11,9 @@ import { parseLookup, resolveShare } from "@/lib/track-share";
 
 export const dynamic = "force-dynamic";
 
-// Рейт-лимит по lookup: превью-боты и перебор verifier'а. Адреса посетителей у приложения
-// нет намеренно (nginx их не передаёт), поэтому окно — на ссылку, не на клиента.
-const WINDOW_MS = 60_000;
+// Рейт-лимит по lookup (lib/rate-limit.ts): превью-боты и перебор verifier'а. Окно — на
+// ссылку, не на клиента: адресов посетителей у приложения нет намеренно.
 const MAX_PER_WINDOW = 30;
-const hits = new Map<string, { at: number; n: number }>();
-
-function limited(key: string, now: number): boolean {
-  const h = hits.get(key);
-  if (!h || now - h.at > WINDOW_MS) {
-    hits.set(key, { at: now, n: 1 });
-    if (hits.size > 5000) hits.clear();
-    return false;
-  }
-  h.n += 1;
-  return h.n > MAX_PER_WINDOW;
-}
 
 const headers = {
   "cache-control": "no-store",
@@ -36,7 +24,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ lookup: st
   const { lookup: raw } = await ctx.params;
   const lookup = parseLookup(raw);
   if (!lookup) return NextResponse.json({ error: "not_found" }, { status: 404, headers });
-  if (limited(raw, Date.now())) {
+  if (limited(`view:${raw}`, MAX_PER_WINDOW)) {
     return NextResponse.json({ error: "too_many" }, { status: 429, headers });
   }
 

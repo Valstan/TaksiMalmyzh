@@ -279,6 +279,43 @@ try {
     const { rows: [d] } = await pool.query(`SELECT disclosed_at IS NOT NULL AS yes FROM track.trip WHERE id = $1`, [trip.id]);
     eq(d.yes, true, "раскрытие необратимо");
 
+    // --- спринт 6: переписка в контуре поездки
+    {
+      const chat = await import("../lib/track-chat.ts");
+      await pool.query(`UPDATE track.trip SET write_token_hash = $2 WHERE id = $1`,
+        [trip.id, createHash("sha256").update("write-проверка", "utf8").digest()]);
+      let r = await chat.contactSend(lookup, verifier, null, "  где ты?  ");
+      eq(r.ok && r.seq, 0, "контакт написал (seq 0, пробелы схлопнуты)");
+      r = await chat.passengerSend(trip.id, "write-проверка", "выезжаю, 5 минут");
+      eq(r.ok && r.seq, 1, "пассажир ответил (seq 1)");
+      eq((await chat.contactSend(lookup, "wrong-verifier-xxxxxxxxxxxx", null, "x")).ok, false, "чужой ключ писать не может");
+      eq((await chat.passengerSend(trip.id, "wrong-token", "x")).ok, false, "чужой writeToken писать не может");
+      eq((await chat.contactSend(lookup, verifier, null, "x".repeat(600))).ok, false, "600 символов — отказ");
+      const msgs = await chat.listMessages(trip.id);
+      eq(msgs.length, 2, "сообщений в поездке");
+      eq(msgs[0].text, "где ты?", "текст контакта расшифрован");
+      eq(msgs[0].via, "маме", "подпись ссылки у сообщения контакта");
+      eq(msgs[1].author, "passenger", "автор второго — пассажир");
+      // шифротекст сообщения нельзя подсунуть под другой seq
+      const { rows: [row] } = await pool.query(`SELECT body FROM track.message WHERE trip_id = $1 AND seq = 0`, [trip.id]);
+      try { crypto.openMessage(tripKey, trip.id, 1, startedAt.getTime(), row.body); fail("сообщение принято под чужим seq"); }
+      catch { ok("сообщение нельзя переставить под чужой seq (AAD связывает)"); }
+      // номер для связи
+      eq(await chat.setContactPhone(trip.id, "write-проверка", "+7 (912) 000-00-00"), true, "номер для связи сохранён");
+      eq(await chat.readContactPhone(trip.id), "+79120000000", "номер читается только цифрами");
+      const vv = await share.resolveShare(lookup, verifier, null, startedAt);
+      eq(vv.ok && vv.view.messages.length, 2, "переписка в ответе просмотра");
+      eq(vv.ok && vv.view.contactPhone, "+79120000000", "номер в ответе просмотра");
+      // свёртка убивает переписку и номер
+      await pool.query(`UPDATE track.trip SET rolled_at = now() WHERE id = $1`, [trip.id]);
+      eq(await chat.pruneChat(pool), 3, "при свёртке удалено: 2 сообщения + номер");
+      eq((await chat.listMessages(trip.id)).length, 0, "после свёртки переписки нет");
+      eq((await chat.contactSend(lookup, verifier, null, "ещё")).ok, false, "в свёрнутую поездку не пишут");
+      const { rows: [er] } = await pool.query(`SELECT count(*)::int n FROM track.erasure_log WHERE action = 'prune_chat'`);
+      eq(er.n, 1, "удаление переписки в журнале уничтожения");
+      await pool.query(`UPDATE track.trip SET rolled_at = NULL, write_token_hash = NULL WHERE id = $1`, [trip.id]);
+    }
+
     // отзыв
     await pool.query(`UPDATE track.share SET revoked_at = now() WHERE lookup_id = $1`, [lookup]);
     const rv = await share.resolveShare(lookup, verifier, null);
