@@ -284,6 +284,40 @@ try {
     const rv = await share.resolveShare(lookup, verifier, null);
     eq(!rv.ok && rv.reason, "revoked", "отозванная ссылка → revoked");
 
+    // --- спринт 5: краудсигналы — одна отметка на номер с устройства в сутки
+    {
+      const { CROWD_DDL_UP, CROWD_DDL_DOWN } = await import("../lib/crowd-ddl.ts");
+      process.env.PAYLOAD_SECRET ??= "check-secret";
+      const crowd = await import("../lib/crowd-signals.ts");
+      await pool.query(CROWD_DDL_DOWN);
+      await pool.query(CROWD_DDL_UP);
+      const day = new Date("2026-09-07T10:00:00Z");
+      await crowd.recordCall(1, "device-A-0123456789abcdef", day);
+      await crowd.recordCall(1, "device-A-0123456789abcdef", day);   // повтор — та же строка
+      await crowd.recordAnswer(1, "device-A-0123456789abcdef", "no_answer", true, day);
+      await crowd.recordAnswer(1, "device-A-0123456789abcdef", "answered", false, day); // передумал
+      await crowd.recordCall(1, "device-B-0123456789abcdef", day);
+      await crowd.recordAnswer(1, "device-B-0123456789abcdef", "no_answer", true, day);
+      await crowd.recordCall(2, "device-A-0123456789abcdef", day);
+      const st = await crowd.entryStats([1, 2, 3], day, pool);
+      eq(st.get(1)?.calls, 2, "звонков по номеру 1 (два устройства, повторы схлопнуты)");
+      eq(st.get(1)?.noAnswer, 1, "без ответа — последнее слово устройства A «дозвонился»");
+      eq(st.get(1)?.priceMismatch, 1, "цена не совпала у одного");
+      eq(st.get(2)?.calls, 1, "номер 2 — один звонок");
+      eq(st.get(3), undefined, "по номеру 3 сигналов нет");
+      eq(crowd.statsLine(st.get(1)), "за месяц: 2 звонка, 1 без ответа, цена не совпала у 1", "строка для карточки");
+      const old = new Date(day.getTime() - 100 * 86_400_000);
+      await crowd.recordCall(1, "device-C-0123456789abcdef", old);
+      eq(await crowd.pruneCrowdSignals(pool, day), 1, "строка старше 90 суток удалена");
+      eq((await crowd.entryStats([1], new Date(day.getTime() + 40 * 86_400_000), pool)).get(1), undefined,
+        "через 40 дней агрегат «за месяц» пуст");
+      const refA = crowd.deviceRef("device-A-0123456789abcdef");
+      eq(refA.equals(crowd.deviceRef("device-A-0123456789abcdef")), true, "псевдоним устройства стабилен");
+      eq(refA.equals(crowd.deviceRef("device-B-0123456789abcdef")), false, "и различает устройства");
+      await pool.query(CROWD_DDL_DOWN);
+      ok("схема crowd снесена");
+    }
+
     // вернуть поездку в исходное для дальнейших проверок регламента
     await pool.query(`UPDATE track.trip SET alarm_at = NULL, disclosed_at = NULL, all_ok_at = NULL, last_point_at = NULL WHERE id = $1`, [trip.id]);
     await pool.query(`DELETE FROM track.share WHERE trip_id = $1`, [trip.id]);

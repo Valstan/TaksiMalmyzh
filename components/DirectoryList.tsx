@@ -1,5 +1,7 @@
 import type { Entry } from "@/payload-types";
 import type { EntryCategory } from "@/lib/sites";
+import { statsLine, type EntryStats } from "@/lib/crowd-signals";
+import CallPhones from "@/components/CallPhones";
 
 // Отрисовка справочника, общая для страницы `/nomera` и для главной
 // категорийного домена. Вынесено сюда не ради красоты: на такси-домене список
@@ -18,23 +20,14 @@ export const CATEGORY_LABELS: Record<EntryCategory, string> = {
 /** Порядок полок на странице. Он же — порядок ключей объекта выше. */
 export const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS) as EntryCategory[];
 
-// Телефон в `tel:` — только цифры и плюс. Пробелы и скобки из аккуратно
-// записанного номера часть звонилок понимает, часть молча не набирает.
-function telHref(raw: string): string {
-  return "tel:" + raw.replace(/[^\d+]/g, "");
-}
-
-function EntryCard({ entry }: { entry: Entry }) {
+function EntryCard({ entry, stats }: { entry: Entry; stats?: EntryStats }) {
+  const line = statsLine(stats);
   return (
     <li className="dir-card">
       <div className="dir-name">{entry.name}</div>
-      <div className="dir-phones">
-        {(entry.phones ?? []).map((p) => (
-          <a key={p.id} className="dir-phone" href={telHref(p.number)}>
-            {p.number}
-          </a>
-        ))}
-      </div>
+      {/* Телефоны — клиентский компонент: после звонка спрашивает «дозвонились?» (спринт 5). */}
+      <CallPhones entryId={entry.id} phones={entry.phones ?? []} />
+      {line && <p className="dir-stats">{line}</p>}
       {entry.prices && entry.prices.length > 0 && (
         <ul className="dir-prices">
           {entry.prices.map((price) => (
@@ -59,9 +52,12 @@ function EntryCard({ entry }: { entry: Entry }) {
 export default function DirectoryList({
   entries,
   showHeadings = true,
+  stats,
 }: {
   entries: Entry[];
   showHeadings?: boolean;
+  /** Краудсигналы за месяц по id записи (спринт 5); без них строка агрегата не рисуется. */
+  stats?: Map<number, EntryStats>;
 }) {
   const byCategory = new Map<EntryCategory, Entry[]>();
   for (const entry of entries) {
@@ -80,7 +76,7 @@ export default function DirectoryList({
             {showHeadings && <h2>{CATEGORY_LABELS[cat]}</h2>}
             <ul className="dir-list">
               {list.map((entry) => (
-                <EntryCard key={entry.id} entry={entry} />
+                <EntryCard key={entry.id} entry={entry} stats={stats?.get(entry.id)} />
               ))}
             </ul>
           </section>

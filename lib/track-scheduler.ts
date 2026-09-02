@@ -1,6 +1,7 @@
 import { trackPool } from "./track-db.ts";
 import { partitionRunwayDays, runMaintenance } from "./track-maintenance.ts";
 import { escalateTrips } from "./track-share.ts";
+import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
 
 /** Лестница «мёртвой руки» считает минуты — и проверяется раз в минуту (M0.A §5.3). */
 const ESCALATE_EVERY_MS = 60 * 1000;
@@ -67,6 +68,11 @@ async function tick(log: Logger): Promise<void> {
         `${r.voided}, свёрнуто ${r.folded}, партиций удалено ${r.dropped.length}, ` +
         `погашено ${r.pruned}, запас партиций ${r.runway} сут`,
     );
+    // Краудсигналы (спринт 5): строки старше срока — вон. Своя схема, свой guard.
+    if (await crowdReady(trackPool())) {
+      const pruned = await pruneCrowdSignals(trackPool());
+      if (pruned) log.info(`краудсигналы: удалено по сроку ${pruned}`);
+    }
     if (r.runway < RUNWAY_ALERT_DAYS) {
       log.error(
         `регламент трасс: запас партиций всего ${r.runway} суток — приём точек скоро начнёт ` +

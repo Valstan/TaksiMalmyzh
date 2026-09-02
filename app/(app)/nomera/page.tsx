@@ -6,6 +6,7 @@ import SuggestForm from "@/components/SuggestForm";
 import SiteHeader from "@/components/SiteHeader";
 import DirectoryList from "@/components/DirectoryList";
 import { resolveSite, siteCategories } from "@/lib/sites";
+import { crowdReady, entryStats } from "@/lib/crowd-signals";
 
 // Страница ходит в базу — пререндерить её на сборке нельзя (в CI базы нет),
 // а кэшировать надолго не нужно: правки супер-админа должны быть видны сразу.
@@ -43,6 +44,8 @@ export default async function NomeraPage({
     limit: 500,
     sort: "name",
   });
+  // Агрегат сигналов — если схема уже есть; страница не зависит от миграции спринта 5.
+  const stats = (await crowdReady()) ? await entryStats(docs.map((d) => d.id)) : undefined;
 
   return (
     <main className="page">
@@ -59,7 +62,7 @@ export default async function NomeraPage({
         </p>
       )}
 
-      <DirectoryList entries={docs} />
+      <DirectoryList entries={docs} stats={stats} />
 
       <SuggestForm />
 
