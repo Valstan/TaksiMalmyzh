@@ -7,6 +7,8 @@ import SiteHeader from "@/components/SiteHeader";
 import DirectoryList from "@/components/DirectoryList";
 import { resolveSite, siteCategories } from "@/lib/sites";
 import { crowdReady, entryStats } from "@/lib/crowd-signals";
+import { currentUser } from "@/lib/session";
+import { marketReady, myClaims } from "@/lib/market";
 
 // Страница ходит в базу — пререндерить её на сборке нельзя (в CI базы нет),
 // а кэшировать надолго не нужно: правки супер-админа должны быть видны сразу.
@@ -43,9 +45,13 @@ export default async function NomeraPage({
     ...(categories ? { where: { category: { in: categories } } } : {}),
     limit: 500,
     sort: "name",
+    depth: 0, // owner — id, не документ: посетителю чужой пользователь не отдаётся
   });
   // Агрегат сигналов — если схема уже есть; страница не зависит от миграции спринта 5.
   const stats = (await crowdReady()) ? await entryStats(docs.map((d) => d.id)) : undefined;
+  // Кто смотрит (спринт 8): вошедшему — «Это мой бизнес» и состояние его заявок.
+  const viewer = await currentUser();
+  const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
 
   return (
     <main className="page">
@@ -62,7 +68,7 @@ export default async function NomeraPage({
         </p>
       )}
 
-      <DirectoryList entries={docs} stats={stats} />
+      <DirectoryList entries={docs} stats={stats} viewer={viewer} claims={claims} />
 
       <SuggestForm />
 

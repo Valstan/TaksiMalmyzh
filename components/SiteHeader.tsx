@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { oidcConfig } from "@/lib/oidc";
 import { currentUser } from "@/lib/session";
+import { marketReady, unseenRequests } from "@/lib/market";
 import { ECOSYSTEM_SERVICES_URL, ROOT_SITE, siteHref, type Site } from "@/lib/sites";
 
 // Шапка, объясняющая матрёшку: человек, пришедший на `такси.вмалмыже.рф`, должен
@@ -33,6 +34,15 @@ export default async function SiteHeader({
 
   const loginEnabled = Boolean(oidcConfig());
   const user = loginEnabled ? await currentUser() : null;
+  // Уведомление бизнесу о вызове — в приложении (§8.8): число непросмотренных в шапке.
+  let unseen = 0;
+  if (user && (await marketReady())) {
+    try {
+      const { getPayload } = await import("payload");
+      const { default: config } = await import("@payload-config");
+      unseen = await unseenRequests(await getPayload({ config }), user.id);
+    } catch { /* кабинет не обязателен для шапки */ }
+  }
   // Вход живёт на корневом домене (единственный redirect_uri клиента): с поддомена
   // кнопка ведёт туда, и после входа человек остаётся на корне — там же и сессия.
   // Кука сессии хостовая намеренно: кука на всю зону уезжала бы соседним проектам.
@@ -75,6 +85,7 @@ export default async function SiteHeader({
             <span className="who">
               <span aria-label="Вы вошли как">👤 {user.label}</span>
               <Link href="/poezdki">поездки знакомых</Link>
+              <Link href="/kabinet">{unseen > 0 ? `кабинет (${unseen})` : "кабинет"}</Link>
               {user.role === "superadmin" && <Link href="/admin">админка</Link>}
               <form action="/api/auth/logout" method="post">
                 <button type="submit">выйти</button>

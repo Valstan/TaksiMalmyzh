@@ -173,6 +173,15 @@ export interface Entry {
     | null;
   note?: string | null;
   /**
+   * Правит владелец в кабинете; персонал — при необходимости.
+   */
+  description?: string | null;
+  hours?: string | null;
+  /**
+   * Ставится после подтверждения звонком (заявка в /kabinet). Владелец правит описание, часы и цены сам.
+   */
+  owner?: (number | null) | User;
+  /**
    * «Опубликован» ставится только после проверки номера звонком или лично.
    */
   status: 'draft' | 'published' | 'rejected';
@@ -304,6 +313,9 @@ export interface EntriesSelect<T extends boolean = true> {
         id?: T;
       };
   note?: T;
+  description?: T;
+  hours?: T;
+  owner?: T;
   status?: T;
   source?: T;
   updatedAt?: T;

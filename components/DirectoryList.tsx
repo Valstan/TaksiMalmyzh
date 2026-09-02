@@ -2,6 +2,9 @@ import type { Entry } from "@/payload-types";
 import type { EntryCategory } from "@/lib/sites";
 import { statsLine, type EntryStats } from "@/lib/crowd-signals";
 import CallPhones from "@/components/CallPhones";
+import EntryActions from "@/components/EntryActions";
+
+export type Viewer = { id: number; role: string } | null;
 
 // Отрисовка справочника, общая для страницы `/nomera` и для главной
 // категорийного домена. Вынесено сюда не ради красоты: на такси-домене список
@@ -20,11 +23,15 @@ export const CATEGORY_LABELS: Record<EntryCategory, string> = {
 /** Порядок полок на странице. Он же — порядок ключей объекта выше. */
 export const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS) as EntryCategory[];
 
-function EntryCard({ entry, stats }: { entry: Entry; stats?: EntryStats }) {
+function EntryCard({
+  entry, stats, viewer, claimed,
+}: { entry: Entry; stats?: EntryStats; viewer: Viewer; claimed: number | null }) {
   const line = statsLine(stats);
+  const ownerId = typeof entry.owner === "object" && entry.owner ? entry.owner.id : entry.owner;
   return (
     <li className="dir-card">
       <div className="dir-name">{entry.name}</div>
+      {entry.hours && <div className="dir-hours">{entry.hours}</div>}
       {/* Телефоны — клиентский компонент: после звонка спрашивает «дозвонились?» (спринт 5). */}
       <CallPhones entryId={entry.id} phones={entry.phones ?? []} />
       {line && <p className="dir-stats">{line}</p>}
@@ -37,7 +44,9 @@ function EntryCard({ entry, stats }: { entry: Entry; stats?: EntryStats }) {
           ))}
         </ul>
       )}
+      {entry.description && <p className="dir-note">{entry.description}</p>}
       {entry.note && <p className="dir-note">{entry.note}</p>}
+      <EntryActions entryId={entry.id} hasOwner={Boolean(ownerId)} viewer={viewer} claimed={claimed} />
     </li>
   );
 }
@@ -53,11 +62,17 @@ export default function DirectoryList({
   entries,
   showHeadings = true,
   stats,
+  viewer,
+  claims,
 }: {
   entries: Entry[];
   showHeadings?: boolean;
   /** Краудсигналы за месяц по id записи (спринт 5); без них строка агрегата не рисуется. */
   stats?: Map<number, EntryStats>;
+  /** Кто смотрит (спринт 8): для «Это мой бизнес». */
+  viewer?: Viewer;
+  /** Заявки этого посетителя по id записи → статус. */
+  claims?: Map<number, number>;
 }) {
   const byCategory = new Map<EntryCategory, Entry[]>();
   for (const entry of entries) {
@@ -76,7 +91,13 @@ export default function DirectoryList({
             {showHeadings && <h2>{CATEGORY_LABELS[cat]}</h2>}
             <ul className="dir-list">
               {list.map((entry) => (
-                <EntryCard key={entry.id} entry={entry} stats={stats?.get(entry.id)} />
+                <EntryCard
+                  key={entry.id}
+                  entry={entry}
+                  stats={stats?.get(entry.id)}
+                  viewer={viewer ?? null}
+                  claimed={claims?.get(entry.id) ?? null}
+                />
               ))}
             </ul>
           </section>

@@ -3,6 +3,7 @@ import { partitionRunwayDays, runMaintenance } from "./track-maintenance.ts";
 import { escalateTrips } from "./track-share.ts";
 import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
 import { pruneChat } from "./track-chat.ts";
+import { marketReady, pruneRequests } from "./market.ts";
 
 /** Лестница «мёртвой руки» считает минуты — и проверяется раз в минуту (M0.A §5.3). */
 const ESCALATE_EVERY_MS = 60 * 1000;
@@ -76,6 +77,11 @@ async function tick(log: Logger): Promise<void> {
     } catch (e) {
       // Таблицы ещё может не быть (миграция не применена) — не роняем регламент.
       log.error(`чат поездок: чистка не прошла: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    // Вызовы (спринт 8): телефон клиента не лежит дольше 30 суток.
+    if (await marketReady(trackPool())) {
+      const reqPruned = await pruneRequests(trackPool());
+      if (reqPruned) log.info(`вызовы: удалено по сроку ${reqPruned}`);
     }
     // Краудсигналы (спринт 5): строки старше срока — вон. Своя схема, свой guard.
     if (await crowdReady(trackPool())) {
