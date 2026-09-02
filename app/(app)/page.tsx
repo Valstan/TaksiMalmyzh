@@ -9,6 +9,7 @@ import { resolveSite, siteCategories } from "@/lib/sites";
 import { crowdReady, entryStats } from "@/lib/crowd-signals";
 import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
+import { ratingsReady, ratingStats } from "@/lib/ratings";
 
 // Главная зависит от домена (матрёшка, `lib/sites.ts`) и на категорийных
 // доменах ходит в базу — пререндерить нельзя ни то, ни другое.
@@ -40,6 +41,7 @@ export default async function Home() {
   const stats = entries.length && (await crowdReady()) ? await entryStats(entries.map((e) => e.id)) : undefined;
   const viewer = entries.length ? await currentUser() : null;
   const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
+  const ratings = entries.length && (await ratingsReady()) ? await ratingStats(entries.map((e) => e.id)) : undefined;
 
   return (
     <main className="page">
@@ -48,7 +50,7 @@ export default async function Home() {
       {categories && (
         <>
           {entries.length > 0 ? (
-            <DirectoryList entries={entries} showHeadings={categories.length > 1} stats={stats} viewer={viewer} claims={claims} />
+            <DirectoryList entries={entries} showHeadings={categories.length > 1} stats={stats} viewer={viewer} claims={claims} ratings={ratings} />
           ) : (
             <p className="page-sub">
               Номера появляются в справочнике после проверки. Пока пусто —{" "}

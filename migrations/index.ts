@@ -8,6 +8,7 @@ import * as migration_20260903_100000_share from './20260903_100000_share';
 import * as migration_20260903_120000_crowd_signals from './20260903_120000_crowd_signals';
 import * as migration_20260903_140000_chat from './20260903_140000_chat';
 import * as migration_20260903_160000_business from './20260903_160000_business';
+import * as migration_20260903_180000_ratings from './20260903_180000_ratings';
 
 export const migrations = [
   {
@@ -59,5 +60,10 @@ export const migrations = [
     up: migration_20260903_160000_business.up,
     down: migration_20260903_160000_business.down,
     name: '20260903_160000_business'
+  },
+  {
+    up: migration_20260903_180000_ratings.up,
+    down: migration_20260903_180000_ratings.down,
+    name: '20260903_180000_ratings'
   },
 ];

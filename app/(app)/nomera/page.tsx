@@ -9,6 +9,7 @@ import { resolveSite, siteCategories } from "@/lib/sites";
 import { crowdReady, entryStats } from "@/lib/crowd-signals";
 import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
+import { ratingsReady, ratingStats } from "@/lib/ratings";
 
 // Страница ходит в базу — пререндерить её на сборке нельзя (в CI базы нет),
 // а кэшировать надолго не нужно: правки супер-админа должны быть видны сразу.
@@ -52,6 +53,7 @@ export default async function NomeraPage({
   // Кто смотрит (спринт 8): вошедшему — «Это мой бизнес» и состояние его заявок.
   const viewer = await currentUser();
   const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
+  const ratings = (await ratingsReady()) ? await ratingStats(docs.map((d) => d.id)) : undefined;
 
   return (
     <main className="page">
@@ -68,7 +70,7 @@ export default async function NomeraPage({
         </p>
       )}
 
-      <DirectoryList entries={docs} stats={stats} viewer={viewer} claims={claims} />
+      <DirectoryList entries={docs} stats={stats} viewer={viewer} claims={claims} ratings={ratings} />
 
       <SuggestForm />
 

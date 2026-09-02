@@ -44,6 +44,35 @@ CREATE INDEX request_entry_idx ON market.request (entry_id, at DESC);
 
 export const MARKET_DDL_DOWN = `DROP SCHEMA IF EXISTS market CASCADE;`;
 
+// Рейтинги — миграция 20260903_180000_ratings (спринт 9). Обоснование ограничений —
+// docs/RATINGS.md. worker_id = 0 — голос фирме; иначе — работнику (заведён бизнесом).
+export const RATINGS_DDL_UP = `
+CREATE TABLE market.worker (
+  id         integer     PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  entry_id   integer     NOT NULL,
+  name       text        NOT NULL,
+  active     boolean     NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX worker_entry_idx ON market.worker (entry_id) WHERE active;
+
+CREATE TABLE market.rating (
+  entry_id   integer  NOT NULL,
+  worker_id  integer  NOT NULL DEFAULT 0,
+  device_ref bytea    NOT NULL,
+  day        date     NOT NULL,
+  stars      smallint NOT NULL CHECK (stars BETWEEN 1 AND 5),
+  at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (entry_id, worker_id, device_ref, day)
+);
+CREATE INDEX rating_entry_day_idx ON market.rating (entry_id, day DESC);
+`;
+
+export const RATINGS_DDL_DOWN = `
+DROP TABLE IF EXISTS market.rating;
+DROP TABLE IF EXISTS market.worker;
+`;
+
 // Поля карточки бизнеса на записи справочника (коллекция Payload `entries`): описание,
 // часы работы, владелец. Имена колонок и индексов — те, что построил бы Payload.
 export const ENTRIES_BUSINESS_UP = `

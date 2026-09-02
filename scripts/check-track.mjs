@@ -338,6 +338,34 @@ try {
       await pool.query(`UPDATE market.request SET at = $2 WHERE id = $1`, [rid, old]);
       eq(await market.pruneRequests(pool), 1, "вызов старше 30 суток удалён");
       eq(await market.marketReady(pool), true, "схема market на месте");
+
+      // --- спринт 9: звёзды — один голос на устройство в день, формула владельца
+      const { RATINGS_DDL_UP } = await import("../lib/market-ddl.ts");
+      await pool.query(RATINGS_DDL_UP);
+      process.env.PAYLOAD_SECRET ??= "check-secret";
+      const ratings = await import("../lib/ratings.ts");
+      const w1 = await ratings.addWorker(1, "  водитель   Василий ");
+      eq(w1?.name, "водитель Василий", "работник заведён, пробелы схлопнуты");
+      eq(await ratings.addWorker(1, "В"), null, "имя из одной буквы — отказ");
+      const d = new Date("2026-09-07T12:00:00Z");
+      eq(await ratings.rate(1, 0, "dev-A-0123456789abcdef", 5, d), "ok", "голос фирме");
+      eq(await ratings.rate(1, 0, "dev-A-0123456789abcdef", 3, d), "ok", "передумал — тот же голос");
+      eq(await ratings.rate(1, w1.id, "dev-A-0123456789abcdef", 5, d), "ok", "голос работнику");
+      eq(await ratings.rate(1, w1.id, "dev-B-0123456789abcdef", 4, d), "ok", "второе устройство работнику");
+      eq(await ratings.rate(1, 999, "dev-B-0123456789abcdef", 4, d), "no_worker", "несуществующий работник");
+      eq(await ratings.rate(1, 0, "dev-B-0123456789abcdef", 6, d), "bad_stars", "6 звёзд — отказ");
+      const rs = await ratings.ratingStats([1, 2], d, pool);
+      eq(rs.get(1)?.count, 3, "голосов всего (фирма 1 + работник 2)");
+      eq(rs.get(1)?.avg, 4, "среднее по формуле владельца: (3+5+4)/3");
+      eq(rs.get(1)?.workers[0]?.avg, 4.5, "среднее работника");
+      eq(rs.get(2), undefined, "у записи 2 рейтинга нет");
+      eq(ratings.ratingLine(rs.get(1)), "★ 4,0 (3)", "строка для карточки");
+      eq(await ratings.removeWorker(1, w1.id), true, "работник убран");
+      const rs2 = await ratings.ratingStats([1], d, pool);
+      eq(rs2.get(1)?.workers.length, 0, "убранный работник со страницы ушёл");
+      eq(rs2.get(1)?.count, 3, "его голоса остались в общем рейтинге");
+      await pool.query(`UPDATE market.rating SET day = '2025-01-01'`);
+      eq(await ratings.pruneRatings(pool, d), 3, "голоса старше года удалены");
       await pool.query(MARKET_DDL_DOWN);
       ok("схема market снесена");
     }

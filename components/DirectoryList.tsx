@@ -3,6 +3,8 @@ import type { EntryCategory } from "@/lib/sites";
 import { statsLine, type EntryStats } from "@/lib/crowd-signals";
 import CallPhones from "@/components/CallPhones";
 import EntryActions from "@/components/EntryActions";
+import RateWidget from "@/components/RateWidget";
+import { ratingLine, type RatingStats } from "@/lib/ratings";
 
 export type Viewer = { id: number; role: string } | null;
 
@@ -24,13 +26,17 @@ export const CATEGORY_LABELS: Record<EntryCategory, string> = {
 export const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS) as EntryCategory[];
 
 function EntryCard({
-  entry, stats, viewer, claimed,
-}: { entry: Entry; stats?: EntryStats; viewer: Viewer; claimed: number | null }) {
+  entry, stats, viewer, claimed, rating,
+}: { entry: Entry; stats?: EntryStats; viewer: Viewer; claimed: number | null; rating?: RatingStats }) {
   const line = statsLine(stats);
+  const stars = ratingLine(rating);
   const ownerId = typeof entry.owner === "object" && entry.owner ? entry.owner.id : entry.owner;
   return (
     <li className="dir-card">
-      <div className="dir-name">{entry.name}</div>
+      <div className="dir-name">
+        {entry.name}
+        {stars && <span className="dir-rating"> {stars}</span>}
+      </div>
       {entry.hours && <div className="dir-hours">{entry.hours}</div>}
       {/* Телефоны — клиентский компонент: после звонка спрашивает «дозвонились?» (спринт 5). */}
       <CallPhones entryId={entry.id} phones={entry.phones ?? []} />
@@ -46,6 +52,14 @@ function EntryCard({
       )}
       {entry.description && <p className="dir-note">{entry.description}</p>}
       {entry.note && <p className="dir-note">{entry.note}</p>}
+      {rating && rating.workers.length > 0 && (
+        <p className="dir-workers">
+          {rating.workers.map((w) => (
+            <span key={w.id}>{w.name}{w.count > 0 && ` ★ ${w.avg.toFixed(1).replace(".", ",")}`}</span>
+          ))}
+        </p>
+      )}
+      {ownerId && <RateWidget entryId={entry.id} workers={rating?.workers ?? []} />}
       <EntryActions entryId={entry.id} hasOwner={Boolean(ownerId)} viewer={viewer} claimed={claimed} />
     </li>
   );
@@ -64,6 +78,7 @@ export default function DirectoryList({
   stats,
   viewer,
   claims,
+  ratings,
 }: {
   entries: Entry[];
   showHeadings?: boolean;
@@ -73,6 +88,8 @@ export default function DirectoryList({
   viewer?: Viewer;
   /** Заявки этого посетителя по id записи → статус. */
   claims?: Map<number, number>;
+  /** Рейтинги (спринт 9) по id записи. */
+  ratings?: Map<number, RatingStats>;
 }) {
   const byCategory = new Map<EntryCategory, Entry[]>();
   for (const entry of entries) {
@@ -97,6 +114,7 @@ export default function DirectoryList({
                   stats={stats?.get(entry.id)}
                   viewer={viewer ?? null}
                   claimed={claims?.get(entry.id) ?? null}
+                  rating={ratings?.get(entry.id)}
                 />
               ))}
             </ul>
