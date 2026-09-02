@@ -23,6 +23,21 @@ export const DEFAULT_ISSUER = "https://xn--b1ae3a1a.xn--80adkdyec4j.xn--p1ai";
 
 export const CALLBACK_PATH = "/api/auth/oidc/callback";
 
+/**
+ * Публичный адрес корневого домена — для редиректов и флага Secure у кук.
+ *
+ * ⚠️ Не `new URL(request.url).origin`: за nginx приложение видит себя как
+ * `localhost:<порт>`, и первый живой вход 2026-09-02 вернул владельца ровно туда.
+ * Локально (`next dev`) публичного адреса нет — тогда origin запроса и http.
+ */
+export function publicOrigin(request: Request): { origin: string; secure: boolean } {
+  if (process.env.NODE_ENV === "production") {
+    return { origin: `https://${ROOT_SITE.host}`, secure: true };
+  }
+  const u = new URL(request.url);
+  return { origin: u.origin, secure: u.protocol === "https:" };
+}
+
 export interface OidcConfig {
   issuer: string;
   clientId: string;

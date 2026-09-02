@@ -4,6 +4,8 @@
 // тому браузеру, который его начал. Кука ограничена путём роутов входа, чтобы не
 // ездить с каждым запросом к сайту.
 
+import { publicOrigin } from "./oidc";
+
 export const FLOW_COOKIE = "oidc-flow";
 
 export interface FlowState {
@@ -29,7 +31,7 @@ export function flowCookieOptions(request: Request) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: new URL(request.url).protocol === "https:",
+    secure: publicOrigin(request).secure,
     path: "/api/auth/oidc",
     maxAge: FLOW_TTL_SECONDS,
   };
