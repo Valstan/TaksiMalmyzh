@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import ShareTripPanel from "@/components/ShareTripPanel";
+import { installId } from "@/lib/install-id";
 import {
   closeSegment,
   decide,
@@ -32,7 +33,6 @@ type Session = {
   nextSeq: number;
 };
 
-const LS_INSTALL = "taksi.installId";
 const LS_SESSION = "taksi.trip.session";
 const LS_QUEUE = "taksi.trip.queue";
 
@@ -85,18 +85,6 @@ function writeLS(key: string, value: unknown) {
   } catch {
     /* приватный режим или переполнение — запись продолжится, досылка потеряется */
   }
-}
-
-/** install_id: 128 случайных бит, порождается клиентом и живёт локально (M0.A §6.2.2). */
-function installId(): string {
-  let id = localStorage.getItem(LS_INSTALL);
-  if (!id) {
-    const b = new Uint8Array(16);
-    crypto.getRandomValues(b);
-    id = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-    localStorage.setItem(LS_INSTALL, id);
-  }
-  return id;
 }
 
 export default function TripRecorder() {

@@ -5,6 +5,7 @@ import * as migration_20260830_233000_finish_reason from './20260830_233000_fini
 import * as migration_20260902_120000_oidc_sub from './20260902_120000_oidc_sub';
 import * as migration_20260902_180000_visitor_role_name from './20260902_180000_visitor_role_name';
 import * as migration_20260903_100000_share from './20260903_100000_share';
+import * as migration_20260903_120000_crowd_signals from './20260903_120000_crowd_signals';
 
 export const migrations = [
   {
@@ -41,5 +42,10 @@ export const migrations = [
     up: migration_20260903_100000_share.up,
     down: migration_20260903_100000_share.down,
     name: '20260903_100000_share'
+  },
+  {
+    up: migration_20260903_120000_crowd_signals.up,
+    down: migration_20260903_120000_crowd_signals.down,
+    name: '20260903_120000_crowd_signals'
   },
 ];

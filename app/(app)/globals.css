@@ -321,6 +321,40 @@ body {
   flex-wrap: wrap;
 }
 
+/* краудсигналы (спринт 5): агрегат у номера и вопрос после звонка */
+
+.dir-stats {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.ask {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.75rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 0.5rem;
+}
+
+.ask-q {
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+}
+
+.ask-price {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.ask-thanks {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 /* поделиться поездкой (спринт 4) */
 
 .share {

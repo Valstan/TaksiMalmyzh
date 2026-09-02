@@ -6,6 +6,7 @@ import HomeMap from "@/components/HomeMap";
 import SiteHeader from "@/components/SiteHeader";
 import DirectoryList from "@/components/DirectoryList";
 import { resolveSite, siteCategories } from "@/lib/sites";
+import { crowdReady, entryStats } from "@/lib/crowd-signals";
 
 // Главная зависит от домена (матрёшка, `lib/sites.ts`) и на категорийных
 // доменах ходит в базу — пререндерить нельзя ни то, ни другое.
@@ -33,6 +34,7 @@ export default async function Home() {
         })
       ).docs
     : [];
+  const stats = entries.length && (await crowdReady()) ? await entryStats(entries.map((e) => e.id)) : undefined;
 
   return (
     <main className="page">
@@ -41,7 +43,7 @@ export default async function Home() {
       {categories && (
         <>
           {entries.length > 0 ? (
-            <DirectoryList entries={entries} showHeadings={categories.length > 1} />
+            <DirectoryList entries={entries} showHeadings={categories.length > 1} stats={stats} />
           ) : (
             <p className="page-sub">
               Номера появляются в справочнике после проверки. Пока пусто —{" "}
