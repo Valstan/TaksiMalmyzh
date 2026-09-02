@@ -2,6 +2,7 @@ import * as migration_20260829_193521_init from './20260829_193521_init';
 import * as migration_20260830_150000_trips from './20260830_150000_trips';
 import * as migration_20260830_210000_write_token from './20260830_210000_write_token';
 import * as migration_20260830_233000_finish_reason from './20260830_233000_finish_reason';
+import * as migration_20260902_120000_oidc_sub from './20260902_120000_oidc_sub';
 
 export const migrations = [
   {
@@ -23,5 +24,10 @@ export const migrations = [
     up: migration_20260830_233000_finish_reason.up,
     down: migration_20260830_233000_finish_reason.down,
     name: '20260830_233000_finish_reason'
+  },
+  {
+    up: migration_20260902_120000_oidc_sub.up,
+    down: migration_20260902_120000_oidc_sub.down,
+    name: '20260902_120000_oidc_sub'
   },
 ];

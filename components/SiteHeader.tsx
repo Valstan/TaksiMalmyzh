@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ROOT_SITE, siteHref, type Site } from "@/lib/sites";
+import { ECOSYSTEM_SERVICES_URL, ROOT_SITE, siteHref, type Site } from "@/lib/sites";
 
 // Шапка, объясняющая матрёшку: человек, пришедший на `такси.вмалмыже.рф`, должен
 // с первого экрана видеть и что это такси, и что такси — часть «ПОЗВОНИ», где
@@ -48,6 +48,9 @@ export default function SiteHeader({
             Весь справочник города
           </a>
         )}
+        <a href={ECOSYSTEM_SERVICES_URL} rel="external">
+          Сервисы Малмыжа
+        </a>
       </nav>
     </header>
   );
