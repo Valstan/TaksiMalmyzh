@@ -151,6 +151,48 @@ export const TRACK_DDL_FINISH_REASON_DOWN = `
 ALTER TABLE track.trip DROP COLUMN IF EXISTS finish_reason;
 `;
 
+// Ссылки доступа и «мёртвая рука» — миграция 20260903_100000_share (спринт 4, M0.A §5–§6).
+//
+// share: одна строка на получателя. lookup_id — 128 непредсказуемых бит в пути ссылки,
+// verifier_hash — SHA-256 ключа из фрагмента; сам ключ не хранится. label — слово пассажира
+// для себя («маме»), о контакте не храним ничего (§7.5). viewer_user_id — вошедший в ПОЗВОНИ
+// знакомый, открывший ссылку: дальше поездка видна ему в приложении без ключа (§8.8,
+// решение владельца 2026-09-02).
+//
+// trip: alarm_at — поднята тревога (данных нет дольше порога); disclosed_at — маршрут
+// раскрыт, необратимо (§5.3); all_ok_at — пассажир нажал «всё в порядке»; live_share —
+// живой показ, включённый пассажиром на эту поездку (§5.2).
+export const TRACK_DDL_SHARE_UP = `
+CREATE TABLE track.share (
+  id              integer     PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  trip_id         integer     NOT NULL REFERENCES track.trip(id) ON DELETE CASCADE,
+  lookup_id       bytea       NOT NULL UNIQUE,
+  verifier_hash   bytea       NOT NULL,
+  label           text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  revoked_at      timestamptz,
+  viewer_user_id  integer,
+  first_viewed_at timestamptz,
+  last_viewed_at  timestamptz,
+  view_count      integer     NOT NULL DEFAULT 0
+);
+CREATE INDEX share_trip_idx ON track.share (trip_id);
+CREATE INDEX share_viewer_idx ON track.share (viewer_user_id) WHERE viewer_user_id IS NOT NULL;
+
+ALTER TABLE track.trip ADD COLUMN alarm_at     timestamptz;
+ALTER TABLE track.trip ADD COLUMN disclosed_at timestamptz;
+ALTER TABLE track.trip ADD COLUMN all_ok_at    timestamptz;
+ALTER TABLE track.trip ADD COLUMN live_share   boolean NOT NULL DEFAULT false;
+`;
+
+export const TRACK_DDL_SHARE_DOWN = `
+DROP TABLE IF EXISTS track.share;
+ALTER TABLE track.trip DROP COLUMN IF EXISTS alarm_at;
+ALTER TABLE track.trip DROP COLUMN IF EXISTS disclosed_at;
+ALTER TABLE track.trip DROP COLUMN IF EXISTS all_ok_at;
+ALTER TABLE track.trip DROP COLUMN IF EXISTS live_share;
+`;
+
 /**
  * Схема целиком, в порядке миграций.
  *
@@ -166,4 +208,5 @@ export const TRACK_DDL_ALL = [
   TRACK_DDL_UP,
   TRACK_DDL_WRITE_TOKEN_UP,
   TRACK_DDL_FINISH_REASON_UP,
+  TRACK_DDL_SHARE_UP,
 ].join("\n");

@@ -32,7 +32,16 @@ const BOUNDS: [number, number, number, number] = [50.6011, 56.4657, 50.8022, 56.
 const MIN_ZOOM = 10;
 const MAX_ZOOM = 17; // источник даёт z15, выше MapLibre растягивает векторы сам
 
-export default function MapView({ target }: { target: Hit | null }) {
+export type TrackPointView = { lat: number; lng: number };
+
+export default function MapView({
+  target,
+  track,
+}: {
+  target: Hit | null;
+  /** Трасса поездки (страница просмотра по ссылке): линия плюс метка последней точки. */
+  track?: TrackPointView[];
+}) {
   const holder = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const marker = useRef<Marker | null>(null);
@@ -113,6 +122,46 @@ export default function MapView({ target }: { target: Hit | null }) {
       duration: 900,
     });
   }, [target]);
+
+  // Трасса — источник GeoJSON и линия поверх подложки. Последняя точка — красной меткой,
+  // и подпись к ней на странице говорит «последняя известная», а не «сейчас» (M0.A §5.5).
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !track) return;
+    const draw = () => {
+      const coords = track.map((p) => [p.lng, p.lat]);
+      const data = {
+        type: "FeatureCollection" as const,
+        features: coords.length > 1
+          ? [{ type: "Feature" as const, properties: {}, geometry: { type: "LineString" as const, coordinates: coords } }]
+          : [],
+      };
+      const src = m.getSource("track") as { setData: (d: unknown) => void } | undefined;
+      if (src) src.setData(data);
+      else {
+        m.addSource("track", { type: "geojson", data });
+        m.addLayer({
+          id: "track-line",
+          type: "line",
+          source: "track",
+          paint: { "line-color": "#b3261e", "line-width": 4, "line-opacity": 0.85 },
+        });
+      }
+      marker.current?.remove();
+      const last = coords[coords.length - 1];
+      if (last) {
+        marker.current = new Marker({ color: "#b3261e" }).setLngLat([last[0], last[1]]).addTo(m);
+        if (coords.length > 1) {
+          let minX = 180, minY = 90, maxX = -180, maxY = -90;
+          for (const [x, y] of coords) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+          m.fitBounds([[minX, minY], [maxX, maxY]], { padding: 40, duration: 600, maxZoom: 16 });
+        } else {
+          m.flyTo({ center: [last[0], last[1]], zoom: 15, duration: 600 });
+        }
+      }
+    };
+    if (m.isStyleLoaded()) draw(); else m.once("load", draw);
+  }, [track]);
 
   return (
     <div className="map-holder">

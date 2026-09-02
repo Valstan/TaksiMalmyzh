@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkRecordingGate } from "@/lib/track-gate";
 import { finishTrip, ingestPoints, MAX_BATCH, startTrip } from "@/lib/track-trips";
+import { allOk, createShare, listShares, revokeShare, setLive } from "@/lib/track-share";
 import type { TrackPoint } from "@/lib/track-crypto";
 
 // Запись поездки — единственный эндпоинт с тремя действиями, а не три маршрута.
@@ -11,7 +12,10 @@ import type { TrackPoint } from "@/lib/track-crypto";
 // lib/track-gate.ts: нужны обе переменные, TRACK_RECORDING=on и TRACK_ETAP_A_TOKEN.
 // Без них ответ 404 — «такого адреса нет», а не «закрыто».
 //
-// Тело: { action: "start" | "points" | "finish", ... }
+// Тело: { action: "start" | "points" | "finish" | "share" | "shares" | "revoke" | "live" | "ok", ... }
+//
+// Действия спринта 4 (share/shares/revoke/live/ok) авторизуются тем же writeToken поездки:
+// делиться поездкой и гасить тревогу может только тот, кто её пишет.
 
 export const dynamic = "force-dynamic";
 
@@ -106,6 +110,38 @@ export async function POST(request: Request) {
     const reason = body.reason === "idle" ? "idle" : "user";
     const done = await finishTrip(tripId, writeToken, reason);
     return done.ok ? NextResponse.json({ ok: true }) : bad("Поездка не найдена.", 404);
+  }
+
+  if (action === "share") {
+    const label = typeof body.label === "string" ? body.label : null;
+    const r = await createShare(tripId, writeToken, label);
+    return r.ok ? NextResponse.json({ ok: true, share: r.share }) : bad("Поездка не найдена.", 404);
+  }
+
+  if (action === "shares") {
+    const shares = await listShares(tripId, writeToken);
+    if (!shares) return bad("Поездка не найдена.", 404);
+    const { rows } = await (await import("@/lib/track-db")).trackPool().query<{ live_share: boolean }>(
+      `SELECT live_share FROM track.trip WHERE id = $1`, [tripId],
+    );
+    return NextResponse.json({ ok: true, shares, live: rows[0]?.live_share ?? false });
+  }
+
+  if (action === "revoke") {
+    const shareId = typeof body.shareId === "number" ? body.shareId : NaN;
+    if (!Number.isInteger(shareId)) return bad("Нужен shareId.");
+    const done = await revokeShare(tripId, writeToken, shareId);
+    return done ? NextResponse.json({ ok: true }) : bad("Ссылка не найдена.", 404);
+  }
+
+  if (action === "live") {
+    const done = await setLive(tripId, writeToken, body.live === true);
+    return done ? NextResponse.json({ ok: true }) : bad("Поездка не найдена.", 404);
+  }
+
+  if (action === "ok") {
+    const done = await allOk(tripId, writeToken);
+    return done ? NextResponse.json({ ok: true }) : bad("Поездка не найдена.", 404);
   }
 
   return bad("Неизвестное действие.");
