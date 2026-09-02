@@ -193,6 +193,33 @@ ALTER TABLE track.trip DROP COLUMN IF EXISTS all_ok_at;
 ALTER TABLE track.trip DROP COLUMN IF EXISTS live_share;
 `;
 
+// Чат на странице поездки — миграция 20260903_140000_chat (спринт 6, M0.A §7.6 — ОРИ-риск
+// принят владельцем 2026-08-29).
+//
+// Сообщение — шифротекст ключом поездки (слот `msg`, AAD связывает trip_id и seq): дамп
+// базы переписки не отдаёт, как и трассы. share_id — через какую ссылку писал контакт
+// (для подписи «маме»); при удалении ссылки остаётся NULL. Переписка удаляется вместе с
+// сырьём при свёртке поездки (pruneChat), поэтому у неё нет своего срока.
+// contact_phone_enc — номер для связи на эту поездку, если пассажир оставил (слот `phone`).
+export const TRACK_DDL_CHAT_UP = `
+CREATE TABLE track.message (
+  id       bigint      PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  trip_id  integer     NOT NULL REFERENCES track.trip(id) ON DELETE CASCADE,
+  seq      integer     NOT NULL,
+  share_id integer     REFERENCES track.share(id) ON DELETE SET NULL,
+  author   smallint    NOT NULL,           -- 1 пассажир, 2 контакт
+  at       timestamptz NOT NULL DEFAULT now(),
+  body     bytea       NOT NULL,
+  UNIQUE (trip_id, seq)
+);
+ALTER TABLE track.trip ADD COLUMN contact_phone_enc bytea;
+`;
+
+export const TRACK_DDL_CHAT_DOWN = `
+DROP TABLE IF EXISTS track.message;
+ALTER TABLE track.trip DROP COLUMN IF EXISTS contact_phone_enc;
+`;
+
 /**
  * Схема целиком, в порядке миграций.
  *
@@ -209,4 +236,5 @@ export const TRACK_DDL_ALL = [
   TRACK_DDL_WRITE_TOKEN_UP,
   TRACK_DDL_FINISH_REASON_UP,
   TRACK_DDL_SHARE_UP,
+  TRACK_DDL_CHAT_UP,
 ].join("\n");

@@ -51,8 +51,8 @@ export type TrackPoint = {
 };
 
 /** Слот шифротекста — входит в AAD, поэтому шифротекст нельзя переставить в чужое поле. */
-export type Slot = "point" | "ends" | "dest" | "folded";
-const SLOT_CODE: Record<Slot, number> = { point: 1, ends: 2, dest: 3, folded: 4 };
+export type Slot = "point" | "ends" | "dest" | "folded" | "msg" | "phone";
+const SLOT_CODE: Record<Slot, number> = { point: 1, ends: 2, dest: 3, folded: 4, msg: 5, phone: 6 };
 
 function u32(view: DataView, off: number, v: number) {
   view.setUint32(off, v >>> 0, false); // big-endian: AAD канонична и читается глазами
@@ -155,6 +155,15 @@ export function sealTripField(
   plaintext: Buffer,
 ): Buffer {
   return seal(tripKey, plaintext, aad(slot, tripId, -1, startedAtMs));
+}
+
+/** Сообщение чата (спринт 6): слот `msg`, seq — порядковый номер сообщения в поездке. */
+export function sealMessage(tripKey: Buffer, tripId: number, seq: number, startedAtMs: number, text: string): Buffer {
+  return seal(tripKey, Buffer.from(text, "utf8"), aad("msg", tripId, seq, startedAtMs));
+}
+
+export function openMessage(tripKey: Buffer, tripId: number, seq: number, startedAtMs: number, boxed: Buffer): string {
+  return open(tripKey, boxed, aad("msg", tripId, seq, startedAtMs)).toString("utf8");
 }
 
 export function openTripField(

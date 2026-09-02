@@ -2,6 +2,7 @@ import { trackPool } from "./track-db.ts";
 import { partitionRunwayDays, runMaintenance } from "./track-maintenance.ts";
 import { escalateTrips } from "./track-share.ts";
 import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
+import { pruneChat } from "./track-chat.ts";
 
 /** Лестница «мёртвой руки» считает минуты — и проверяется раз в минуту (M0.A §5.3). */
 const ESCALATE_EVERY_MS = 60 * 1000;
@@ -68,6 +69,14 @@ async function tick(log: Logger): Promise<void> {
         `${r.voided}, свёрнуто ${r.folded}, партиций удалено ${r.dropped.length}, ` +
         `погашено ${r.pruned}, запас партиций ${r.runway} сут`,
     );
+    // Чат (спринт 6): переписка и номер для связи умирают со свёрткой поездки.
+    try {
+      const chatPruned = await pruneChat(trackPool());
+      if (chatPruned) log.info(`чат поездок: удалено со свёрткой ${chatPruned}`);
+    } catch (e) {
+      // Таблицы ещё может не быть (миграция не применена) — не роняем регламент.
+      log.error(`чат поездок: чистка не прошла: ${e instanceof Error ? e.message : String(e)}`);
+    }
     // Краудсигналы (спринт 5): строки старше срока — вон. Своя схема, свой guard.
     if (await crowdReady(trackPool())) {
       const pruned = await pruneCrowdSignals(trackPool());

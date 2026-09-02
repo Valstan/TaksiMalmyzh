@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { checkRecordingGate } from "@/lib/track-gate";
 import { finishTrip, ingestPoints, MAX_BATCH, startTrip } from "@/lib/track-trips";
 import { allOk, createShare, listShares, revokeShare, setLive } from "@/lib/track-share";
+import { passengerMessages, passengerSend, setContactPhone, MAX_TEXT } from "@/lib/track-chat";
 import type { TrackPoint } from "@/lib/track-crypto";
 
 // Запись поездки — единственный эндпоинт с тремя действиями, а не три маршрута.
@@ -141,6 +142,30 @@ export async function POST(request: Request) {
 
   if (action === "ok") {
     const done = await allOk(tripId, writeToken);
+    return done ? NextResponse.json({ ok: true }) : bad("Поездка не найдена.", 404);
+  }
+
+  // Чат (спринт 6): пассажир пишет и читает с экрана записи.
+  if (action === "chat") {
+    const text = typeof body.text === "string" ? body.text : "";
+    if (!text.trim() || text.length > MAX_TEXT) return bad(`Текст от 1 до ${MAX_TEXT} символов.`);
+    const r = await passengerSend(tripId, writeToken, text);
+    if (!r.ok) {
+      return r.reason === "closed" ? bad("Переписка закрыта.", 409)
+        : r.reason === "too_many" ? bad("Слишком много сообщений.", 429)
+        : bad("Поездка не найдена.", 404);
+    }
+    return NextResponse.json({ ok: true, seq: r.seq });
+  }
+
+  if (action === "messages") {
+    const messages = await passengerMessages(tripId, writeToken);
+    return messages ? NextResponse.json({ ok: true, messages }) : bad("Поездка не найдена.", 404);
+  }
+
+  if (action === "phone") {
+    const phone = typeof body.phone === "string" ? body.phone : "";
+    const done = await setContactPhone(tripId, writeToken, phone);
     return done ? NextResponse.json({ ok: true }) : bad("Поездка не найдена.", 404);
   }
 

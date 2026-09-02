@@ -321,6 +321,60 @@ body {
   flex-wrap: wrap;
 }
 
+/* чат на странице поездки (спринт 6) */
+
+.chat {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 0.6rem;
+}
+
+.chat-list {
+  max-height: 18rem;
+  overflow-y: auto;
+  margin: 0.5rem 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.chat-mine {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.chat-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.chat-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-phone {
+  margin: 0.5rem 0;
+}
+
+.chat-phone .rec-btn {
+  text-decoration: none;
+}
+
+.share-phone {
+  margin-top: 1rem;
+}
+
 /* краудсигналы (спринт 5): агрегат у номера и вопрос после звонка */
 
 .dir-stats {

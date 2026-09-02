@@ -19,6 +19,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Pool } from "pg";
 import { trackPool } from "./track-db.ts";
 import { openPoint, unwrapTripKey, type TrackPoint } from "./track-crypto.ts";
+import { listMessages, readContactPhone, type ChatMessage } from "./track-chat.ts";
 
 // --- пороги «мёртвой руки» ---------------------------------------------------------
 //
@@ -45,7 +46,7 @@ export function parseLookup(raw: string): Buffer | null {
   return b.length === 16 ? b : null;
 }
 
-async function authorizeWrite(tripId: number, writeToken: string): Promise<boolean> {
+export async function authorizeWrite(tripId: number, writeToken: string): Promise<boolean> {
   const { rows } = await trackPool().query<{ h: Buffer | null }>(
     `SELECT write_token_hash AS h FROM track.trip WHERE id = $1`,
     [tripId],
@@ -239,6 +240,12 @@ export type ShareView = {
   trackExpired: boolean;
   /** Ссылка привязана к вошедшему знакомому — есть в его списке. */
   boundToViewer: boolean;
+  /** Переписка (спринт 6); после свёртки пусто. */
+  messages: ChatMessage[];
+  /** Номер для связи, если пассажир оставил; иначе null. */
+  contactPhone: string | null;
+  /** Переписка закрыта (поездка свёрнута). */
+  chatClosed: boolean;
 };
 
 export type ResolveResult =
@@ -253,6 +260,36 @@ type ShareRow = {
   trip_key_wrapped: Buffer; key_epoch: number; alarm_at: Date | null; disclosed_at: Date | null;
   all_ok_at: Date | null; live_share: boolean; rolled_at: Date | null;
 };
+
+export type ShareAccess =
+  | { ok: true; shareId: number; tripId: number }
+  | { ok: false; reason: "not_found" | "revoked" | "forbidden" };
+
+/**
+ * Проверка права по ссылке без учёта просмотра — для чата и любых действий контакта.
+ * Та же логика, что у просмотра: verifier из фрагмента либо привязанная сессия.
+ */
+export async function checkShareAccess(
+  lookup: Buffer,
+  verifier: string | null,
+  viewerUserId: number | null,
+): Promise<ShareAccess> {
+  const { rows } = await trackPool().query<{ id: number; trip_id: number; verifier_hash: Buffer; revoked_at: Date | null; viewer_user_id: number | null }>(
+    `SELECT id, trip_id, verifier_hash, revoked_at, viewer_user_id FROM track.share WHERE lookup_id = $1`,
+    [lookup],
+  );
+  const r = rows[0];
+  if (!r) return { ok: false, reason: "not_found" };
+  let byVerifier = false;
+  if (verifier) {
+    const p = sha(verifier);
+    byVerifier = p.length === r.verifier_hash.length && timingSafeEqual(p, r.verifier_hash);
+  }
+  const bySession = viewerUserId !== null && r.viewer_user_id === viewerUserId;
+  if (!byVerifier && !bySession) return { ok: false, reason: "forbidden" };
+  if (r.revoked_at) return { ok: false, reason: "revoked" };
+  return { ok: true, shareId: r.id, tripId: r.trip_id };
+}
 
 /**
  * Открыть поездку по ссылке. Доступ даёт verifier из фрагмента ЛИБО сессия знакомого,
@@ -317,6 +354,9 @@ export async function resolveShare(
     }
   }
 
+  const messages = r.rolled_at ? [] : await listMessages(r.trip_id);
+  const contactPhone = r.rolled_at ? null : await readContactPhone(r.trip_id);
+
   return {
     ok: true,
     view: {
@@ -336,6 +376,9 @@ export async function resolveShare(
       track,
       trackExpired,
       boundToViewer: r.viewer_user_id !== null || bind,
+      messages,
+      contactPhone,
+      chatClosed: r.rolled_at !== null,
     },
   };
 }
