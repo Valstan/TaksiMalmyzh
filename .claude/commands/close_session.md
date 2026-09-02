@@ -19,7 +19,9 @@ git branch --show-current; git status --short; git log --oneline -10; gh pr list
 
 ## Шаг 2. Незакоммиченная работа → через PR-flow (НЕ в `main` напрямую)
 
-Ветка `feat/ fix/ chore/ docs/` → коммит → `git push -u origin <ветка>` → `gh pr create` → (CI, когда появится) → `gh pr merge --squash --delete-branch`. Прода/деплоя пока нет — гейтов сборки нет.
+Ветка `feat/ fix/ chore/ docs/` → гейты (`AGENTS.md` §«Гейты и выкатка») → коммит → `git push -u origin <ветка>` → `gh pr create` → CI зелёный → `gh pr merge --squash --delete-branch`.
+
+⚠️ Выкатка на прод — отдельный ручной workflow `deploy`, мерж её не запускает. Если в сессии мержился код — реши, запускать ли выкатку сейчас, и запиши в handoff, выкачен прод или отстаёт от `main`.
 
 ## Шаг 3. Шеринг находки в brain (условный, pool #009)
 
@@ -34,7 +36,7 @@ git branch --show-current; git status --short; git log --oneline -10; gh pr list
 ```bash
 git checkout -b docs/handoff-<slug>
 git add docs/SESSION_HANDOFF.md
-git commit -m "docs: handoff — <резюме>"
+git commit -F <файл-с-сообщением>   # текст сообщения — файлом, не в -m (D-046)
 git push -u origin docs/handoff-<slug>
 gh pr create ... ; gh pr merge --squash --delete-branch
 git checkout main && git pull --ff-only
