@@ -321,6 +321,71 @@ body {
   flex-wrap: wrap;
 }
 
+/* кабинет бизнеса и вызовы (спринт 8) */
+
+.dir-hours {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: -0.2rem 0 0.3rem;
+}
+
+.entry-actions {
+  margin-top: 0.5rem;
+}
+
+.entry-actions .suggest-form {
+  margin-top: 0.5rem;
+}
+
+.cab {
+  margin-top: 1.5rem;
+}
+
+.cab h2 {
+  margin: 0 0 0.5rem;
+}
+
+.cab-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 0.6rem;
+}
+
+.cab-card h3 {
+  margin: 0;
+}
+
+.cab-textarea {
+  min-height: 5rem;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+}
+
+.cab-price input {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.cab-claim,
+.cab-req {
+  flex-wrap: wrap;
+}
+
+.cab-new {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 0.4rem;
+  padding-left: 0.5rem;
+}
+
+.cab-done {
+  opacity: 0.6;
+}
+
 /* чат на странице поездки (спринт 6) */
 
 .chat {

@@ -7,6 +7,7 @@ import * as migration_20260902_180000_visitor_role_name from './20260902_180000_
 import * as migration_20260903_100000_share from './20260903_100000_share';
 import * as migration_20260903_120000_crowd_signals from './20260903_120000_crowd_signals';
 import * as migration_20260903_140000_chat from './20260903_140000_chat';
+import * as migration_20260903_160000_business from './20260903_160000_business';
 
 export const migrations = [
   {
@@ -53,5 +54,10 @@ export const migrations = [
     up: migration_20260903_140000_chat.up,
     down: migration_20260903_140000_chat.down,
     name: '20260903_140000_chat'
+  },
+  {
+    up: migration_20260903_160000_business.up,
+    down: migration_20260903_160000_business.down,
+    name: '20260903_160000_business'
   },
 ];

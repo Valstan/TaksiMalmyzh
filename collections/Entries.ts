@@ -1,4 +1,4 @@
-import type { CollectionConfig } from "payload";
+import type { CollectionConfig, Where } from "payload";
 
 // Записи справочника «ПОЗВОНИ»: такси, магазины, мастера, бригады.
 //
@@ -18,10 +18,20 @@ export const Entries: CollectionConfig = {
   access: {
     // Публичное чтение — только опубликованное. Query-constraint, а не фильтр в
     // коде страницы: правило действует и для REST, и для любого будущего кода.
-    read: ({ req }) => (req.user ? true : { status: { equals: "published" } }),
-    create: ({ req }) => Boolean(req.user), // посетители идут через /api/suggest
-    update: ({ req }) => Boolean(req.user),
-    delete: ({ req }) => Boolean(req.user),
+    // Персонал видит всё; посетитель — опубликованное и свои карточки (спринт 8).
+    read: ({ req }): boolean | Where =>
+      req.user?.role === "superadmin"
+        ? true
+        : req.user
+          ? { or: [{ status: { equals: "published" } }, { owner: { equals: req.user.id } }] }
+          : { status: { equals: "published" } },
+    // Пишет только персонал. Раньше здесь стояло «любой вошедший» — с появлением
+    // посетителей (2026-09-02) это была бы дыра: сессия посетителя правила бы номера
+    // через REST. Владелец карточки правит описание/часы/цены через /api/cabinet
+    // (lib/market.ts сверяет owner_id), посетители предлагают через /api/suggest.
+    create: ({ req }) => req.user?.role === "superadmin",
+    update: ({ req }) => req.user?.role === "superadmin",
+    delete: ({ req }) => req.user?.role === "superadmin",
   },
   fields: [
     { name: "name", type: "text", label: "Название", required: true },
@@ -58,6 +68,24 @@ export const Entries: CollectionConfig = {
       ],
     },
     { name: "note", type: "textarea", label: "Примечание (направления, часы работы)" },
+    // Карточка бизнеса (спринт 8): это правит сам владелец через кабинет.
+    {
+      name: "description",
+      type: "textarea",
+      label: "Описание от бизнеса",
+      admin: { description: "Правит владелец в кабинете; персонал — при необходимости." },
+    },
+    { name: "hours", type: "text", label: "Часы работы" },
+    {
+      name: "owner",
+      type: "relationship",
+      relationTo: "users",
+      label: "Владелец карточки",
+      admin: {
+        description:
+          "Ставится после подтверждения звонком (заявка в /kabinet). Владелец правит описание, часы и цены сам.",
+      },
+    },
     {
       name: "status",
       type: "select",

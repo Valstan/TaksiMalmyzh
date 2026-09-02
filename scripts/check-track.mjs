@@ -321,6 +321,27 @@ try {
     const rv = await share.resolveShare(lookup, verifier, null);
     eq(!rv.ok && rv.reason, "revoked", "отозванная ссылка → revoked");
 
+    // --- спринт 8: заявки и вызовы (без Payload: только SQL-часть)
+    {
+      const { MARKET_DDL_UP, MARKET_DDL_DOWN } = await import("../lib/market-ddl.ts");
+      const market = await import("../lib/market.ts");
+      await pool.query(MARKET_DDL_DOWN);
+      await pool.query(MARKET_DDL_UP);
+      eq(await market.createClaim(1, 7), "created", "заявка создана");
+      eq(await market.createClaim(1, 7), "exists", "повторная заявка — та же");
+      eq((await market.myClaims(7)).get(1), 0, "у посетителя заявка ждёт");
+      eq(await market.rejectClaim(1), true, "персонал отклонил");
+      eq((await market.myClaims(7)).get(1), 2, "статус — отклонена");
+      const rid = await market.createRequest({ entryId: 1, customerUserId: null, address: "ул. Прибрежная, 5", lat: 56.51, lng: 50.68, phone: "+79120000000", note: "" });
+      eq(typeof rid, "number", "вызов создан");
+      const old = new Date(Date.now() - 40 * 86_400_000);
+      await pool.query(`UPDATE market.request SET at = $2 WHERE id = $1`, [rid, old]);
+      eq(await market.pruneRequests(pool), 1, "вызов старше 30 суток удалён");
+      eq(await market.marketReady(pool), true, "схема market на месте");
+      await pool.query(MARKET_DDL_DOWN);
+      ok("схема market снесена");
+    }
+
     // --- спринт 5: краудсигналы — одна отметка на номер с устройства в сутки
     {
       const { CROWD_DDL_UP, CROWD_DDL_DOWN } = await import("../lib/crowd-ddl.ts");
