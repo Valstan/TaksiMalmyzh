@@ -130,6 +130,10 @@ export interface User {
    * Привязка к вход.вмалмыже.рф. Пусто — не привязан.
    */
   oidcSub?: string | null;
+  /**
+   * Двигается входом. Пусто — входов после 2026-09-03 не было.
+   */
+  lastLoginAt?: string | null;
   updatedAt: string;
   createdAt: string;
   email?: string | null;
@@ -274,6 +278,7 @@ export interface UsersSelect<T extends boolean = true> {
   role?: T;
   name?: T;
   oidcSub?: T;
+  lastLoginAt?: T;
   updatedAt?: T;
   createdAt?: T;
   email?: T;

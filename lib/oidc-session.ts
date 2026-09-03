@@ -21,22 +21,30 @@ export async function issuePayloadSession(payload: Payload, user: User): Promise
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
 
+  // Отметка входа ставится ВСЕГДА, а не только при включённых сессиях: на ней держится
+  // ретеншн аккаунтов посетителей (12 месяцев, решение владельца 2026-09-03). Если бы она
+  // ехала внутри ветки `useSessions`, выключение сессий тихо сделало бы все аккаунты
+  // вечными — ретеншн перестал бы находить кандидатов, ничего при этом не сломав.
+  const data: Partial<Pick<User, "lastLoginAt" | "sessions">> = {
+    lastLoginAt: now.toISOString(),
+  };
+
   let sid: string | undefined;
   if (collection.auth.useSessions) {
     sid = crypto.randomUUID();
     const live = (user.sessions ?? []).filter((s) => new Date(s.expiresAt) > now);
-    await payload.update({
-      collection: "users",
-      id: user.id,
-      data: {
-        sessions: [
-          ...live,
-          { id: sid, createdAt: now.toISOString(), expiresAt: expiresAt.toISOString() },
-        ],
-      },
-      overrideAccess: true,
-    });
+    data.sessions = [
+      ...live,
+      { id: sid, createdAt: now.toISOString(), expiresAt: expiresAt.toISOString() },
+    ];
   }
+
+  await payload.update({
+    collection: "users",
+    id: user.id,
+    data,
+    overrideAccess: true,
+  });
 
   const fieldsToSign = getFieldsToSign({
     collectionConfig: collection,
