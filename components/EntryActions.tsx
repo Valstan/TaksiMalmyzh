@@ -88,9 +88,17 @@ export default function EntryActions({
       )}
       {state === "done" && <p className="suggest-done">Вызов отправлен — вам перезвонят.</p>}
 
+      {/* Истёкшая заявка (3) снова показывает кнопку: до неё не дошли руки персонала, и
+          запирать человека навсегда из-за этого нельзя. Отклонённая (2) — решение
+          человека, её кнопкой не обходят. */}
       {!hasOwner && viewer && viewer.role !== "superadmin" && (
-        claim === null
-          ? <button className="share-revoke" type="button" onClick={() => void claimIt()}>Это мой бизнес</button>
+        claim === null || claim === 3
+          ? (
+            <>
+              <button className="share-revoke" type="button" onClick={() => void claimIt()}>Это мой бизнес</button>
+              {claim === 3 && <span className="share-meta">прошлая заявка истекла без ответа</span>}
+            </>
+          )
           : <span className="share-meta">{claim === 0 ? "заявка отправлена — мы позвоним подтвердить" : claim === 1 ? "ваша карточка" : "заявка отклонена"}</span>
       )}
     </div>

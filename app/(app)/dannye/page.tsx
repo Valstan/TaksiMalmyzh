@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ACCOUNT_RETENTION_MONTHS } from "@/lib/account-retention";
 import { RETENTION_DAYS as SIGNAL_DAYS } from "@/lib/crowd-signals";
-import { REQUEST_RETENTION_DAYS } from "@/lib/market";
+import { CLAIM_GRACE_DAYS, REQUEST_RETENTION_DAYS } from "@/lib/market";
 import { RATING_WINDOW_DAYS } from "@/lib/ratings";
+import { currentUser } from "@/lib/session";
 import { ECOSYSTEM_SERVICES_URL } from "@/lib/sites";
 
 // Уведомление о данных — первая бумага этапа A (решение владельца 2026-09-03, разбор brain
@@ -25,7 +26,26 @@ export const metadata: Metadata = {
 
 const ESA_HREF = "https://вход.вмалмыже.рф";
 
-export default function DannyePage() {
+// Страница читает сессию (кнопка удаления показывается только вошедшему), поэтому не
+// кэшируется.
+export const dynamic = "force-dynamic";
+
+const DELETE_SAID: Record<string, string> = {
+  ok: "Аккаунт удалён. Имя и идентификатор стёрты, ссылки на вас сняты, запись об удалении ушла в журнал.",
+  owner:
+    "Не удалили: на вашем аккаунте держится карточка бизнеса. Сначала персонал должен снять владение — попросите его об этом, иначе карточка осталась бы без хозяина.",
+  staff: "Учётная запись персонала так не удаляется — только из админки.",
+  noauth: "Вы не вошли — удалять нечего.",
+};
+
+export default async function DannyePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ delete?: string }>;
+}) {
+  const said = DELETE_SAID[(await searchParams).delete ?? ""];
+  const user = await currentUser();
+
   return (
     <main className="page">
       <header className="page-header">
@@ -133,18 +153,54 @@ export default function DannyePage() {
           </li>
           <li>
             <strong>вы подали заявку «это мой бизнес», и персонал её ещё не рассмотрел</strong>{" "}
-            — удалить вас посреди процедуры значило бы оборвать её молча. Исключение
-            снимается, как только заявку подтвердят или отклонят. Предельного срока у самого
-            ожидания сейчас нет — назовём его, когда владелец решит, каким ему быть.
+            — удалить вас посреди процедуры значило бы оборвать её молча. Ждёт заявка не
+            вечно: если до неё не дошли за {CLAIM_GRACE_DAYS} дней, она истекает, аккаунт
+            снова считается обычным, а подать заявку заново можно в любой момент.
           </li>
         </ul>
         <p className="page-sub">
           Выход из аккаунта — это не удаление: он закрывает сессию, а данные остаются до
-          срока. Кнопки «удалить аккаунт сейчас» пока нет — это следующий шаг. До неё
-          удаление раньше срока делается просьбой персоналу, и проходит оно вручную, то есть
-          не тем же путём, что автоматическое: ссылки на вас снимает отдельная уборка в
-          ближайший час.
+          срока. Удалить всё сразу, не дожидаясь срока, можно кнопкой ниже.
         </p>
+      </section>
+
+      <section>
+        <h2>Удалить аккаунт сейчас</h2>
+        {said && <p className="page-sub">{said}</p>}
+        {!user && (
+          <p className="page-sub">
+            Кнопка появляется после входа: удалить можно только собственный аккаунт.
+          </p>
+        )}
+        {user?.role === "superadmin" && (
+          <p className="page-sub">
+            Вы вошли как сотрудник. Учётные записи персонала удаляются из админки, а не
+            отсюда.
+          </p>
+        )}
+        {user && user.role !== "superadmin" && (
+          <>
+            <p>
+              Удаляются имя и идентификатор из единого входа, ваши заявки на владение
+              карточками, привязки к присланным вам поездкам и к вашим вызовам. Сами вызовы
+              остаются бизнесу без связи с вами и удалятся своим сроком.
+            </p>
+            {/* Два осознанных действия вместо диалога подтверждения: работает без
+                JavaScript и не зависит от того, перехватит ли браузер `confirm`. */}
+            <details>
+              <summary>Я хочу удалить аккаунт</summary>
+              <p>
+                <strong>Это необратимо.</strong> Вернуть удалённое нельзя — ни нам, ни вам.
+                Войти заново через единый вход вы сможете, но это будет новый пустой аккаунт.
+              </p>
+              <form action="/api/account/delete" method="post">
+                <button className="share-revoke" type="submit">
+                  Да, удалить мой аккаунт навсегда
+                </button>
+              </form>
+            </details>
+          </>
+        )}
       </section>
 
       <section>

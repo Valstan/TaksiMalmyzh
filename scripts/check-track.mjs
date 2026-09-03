@@ -638,8 +638,9 @@ try {
       eq(jr.rows.map((x) => x.target).join(","), "3,6,7", "в журнале записаны именно удалённые");
       eq(jr.rows.every((x) => x.basis === `retention_${retention.ACCOUNT_RETENTION_MONTHS}m`), true,
         "основание у всех — срок владельца");
-      eq(jr.rows.every((x) => x.detail?.role === "user" && x.detail?.reason === "нет входа дольше срока"), true,
-        "в журнале записана причина, а не пустота");
+      eq(jr.rows.every((x) => x.detail?.role === "user"
+        && x.detail?.basis === `retention_${retention.ACCOUNT_RETENTION_MONTHS}m`), true,
+        "в журнале записано основание, а не пустота");
       const { rows: [leak] } = await pool.query(
         `SELECT count(*)::int n FROM track.erasure_log
           WHERE action='delete_visitor_account'
@@ -708,6 +709,84 @@ try {
         await shadow.query(`DELETE FROM entries WHERE id = 12`);
         await pool.query(`DELETE FROM market.claim WHERE user_id = $1`, [n]);
       }
+
+      // --- срок заявки на владение: 30 дней (решение владельца 2026-09-03)
+      //
+      // Исключение из ретеншна не может быть бессрочным, иначе оно отменяет сам срок.
+      {
+        const market = await import("../lib/market.ts");
+        const stale = new Date(Date.now() - (market.CLAIM_GRACE_DAYS + 5) * 86_400_000);
+
+        // (а) Механика гашения — на пользователе 2, который под срок ретеншна не подпадает,
+        // чтобы проверка гашения не зависела от удаления аккаунтов.
+        await pool.query(
+          `INSERT INTO market.claim (entry_id, user_id, at) VALUES (14,2,$1), (15,2,now())`,
+          [stale],
+        );
+        eq(await market.expireStaleClaims(pool), 1, "просроченная заявка погашена");
+        const { rows: [st] } = await pool.query(`SELECT status FROM market.claim WHERE entry_id = 14`);
+        eq(st.status, 3, "статус истёкшей — 3, а не 2: отказа персонал не выносил");
+        const { rows: [fresh] } = await pool.query(`SELECT status FROM market.claim WHERE entry_id = 15`);
+        eq(fresh.status, 0, "свежая заявка не тронута");
+        eq(await market.expireStaleClaims(pool), 0, "повторное гашение идемпотентно");
+
+        // Истёкшую можно подать заново — иначе UNIQUE (entry_id, user_id) запирал бы
+        // человека навсегда из-за того, что персонал не дошёл до звонка.
+        eq(await market.createClaim(14, 2), "created", "истёкшую заявку можно подать заново");
+        eq((await market.myClaims(2)).get(14), 0, "заявка снова ждёт звонка");
+        await pool.query(`UPDATE market.claim SET status = 2 WHERE entry_id = 14`);
+        eq(await market.createClaim(14, 2), "exists", "отклонённую заявку кнопкой не переоткрыть");
+        await pool.query(`DELETE FROM market.claim WHERE user_id = 2`);
+
+        // (б) Возраст заявки снимает защиту ДО гашения: предикат смотрит на дату, а не
+        // только на статус, — иначе между часовыми прогонами защита была бы вечной.
+        await shadow.query(
+          `INSERT INTO users (id, role, oidc_sub, last_login_at, created_at)
+           VALUES (30,'user','sub-30',$1,$1), (31,'user','sub-31',$1,$1)`, [long]);
+        await pool.query(
+          `INSERT INTO market.claim (entry_id, user_id, at) VALUES (14,30,$1), (15,31,now())`,
+          [stale],
+        );
+        await retention.pruneVisitorAccounts(
+          { async delete({ id }) { await shadow.query(`DELETE FROM users WHERE id=$1`, [id]); } },
+          shadow,
+        );
+        const { rows: [g30] } = await shadow.query(`SELECT count(*)::int n FROM users WHERE id = 30`);
+        eq(g30.n, 0, "просроченная заявка не защищает аккаунт и до её гашения");
+        const { rows: [g31] } = await shadow.query(`SELECT count(*)::int n FROM users WHERE id = 31`);
+        eq(g31.n, 1, "свежая заявка аккаунт защищает");
+
+        await pool.query(`DELETE FROM market.claim`);
+        await shadow.query(`DELETE FROM users WHERE id IN (30,31)`);
+      }
+
+      // --- удаление по просьбе человека: тот же путь, другое основание
+      {
+        await shadow.query(
+          `INSERT INTO users (id, role, oidc_sub, last_login_at, created_at)
+           VALUES (40,'user','sub-40',now(),now()), (41,'user','sub-41',now(),now())`);
+        await shadow.query(`INSERT INTO entries (id, owner_id) VALUES (16, 41)`);
+        await pool.query(`INSERT INTO market.claim (entry_id, user_id) VALUES (17, 40)`);
+
+        eq(await retention.ownsEntries(shadow, 41), true, "владелец карточки распознан");
+        eq(await retention.ownsEntries(shadow, 40), false, "не владелец — не владелец");
+
+        const stub2 = { async delete({ id }) { await shadow.query(`DELETE FROM users WHERE id=$1`, [id]); } };
+        await retention.eraseUser(stub2, shadow, 40, "request");
+        const { rows: [gone] } = await shadow.query(`SELECT count(*)::int n FROM users WHERE id = 40`);
+        eq(gone.n, 0, "аккаунт удалён по просьбе");
+        const { rows: [cl40] } = await pool.query(
+          `SELECT count(*)::int n FROM market.claim WHERE user_id = 40`);
+        eq(cl40.n, 0, "заявки удалённого убраны и на этом пути");
+        const { rows: [jb] } = await pool.query(
+          `SELECT basis, detail FROM track.erasure_log
+            WHERE action='delete_visitor_account' AND target='40'`);
+        eq(jb.basis, "request", "в журнале основание «просьба», а не срок");
+        eq(jb.detail?.role, "user", "и роль записана");
+
+        await shadow.query(`DELETE FROM users WHERE id = 41`);
+        await shadow.query(`DELETE FROM entries WHERE id = 16`);
+      }
     } finally {
       await shadow.end().catch(() => {});
       await pool.query(MARKET_DDL_DOWN).catch(() => {});
@@ -715,12 +794,24 @@ try {
     }
   }
 } finally {
-  // Схема пересоздаётся пустой, а не сносится: миграция в payload_migrations помечена
-  // применённой, и база разработчика без схемы разошлась бы со своим же журналом миграций.
+  // Схемы пересоздаются пустыми, а не сносятся: миграции в payload_migrations помечены
+  // применёнными, и база разработчика без схемы разошлась бы со своим же журналом миграций.
+  //
+  // `market` и `crowd` попали сюда не сразу: разделы выше сносят их своим же DOWN, и до
+  // 2026-09-03 проверка оставляла базу разработчика без них. Замечено, когда сквозная
+  // проверка кнопки удаления упала на «отношение market.claim не существует» — то есть
+  // грабля успела сработать на живом человеке, прежде чем её починили.
   await pool.query(`DROP SCHEMA IF EXISTS track CASCADE`).catch(() => {});
   await pool.query(TRACK_DDL_ALL).catch(() => {});
+  const ddl = await import("../lib/market-ddl.ts").catch(() => null);
+  if (ddl) {
+    await pool.query(ddl.MARKET_DDL_UP).catch(() => {});
+    await pool.query(ddl.RATINGS_DDL_UP).catch(() => {});
+  }
+  const crowdDdl = await import("../lib/crowd-ddl.ts").catch(() => null);
+  if (crowdDdl) await pool.query(crowdDdl.CROWD_DDL_UP).catch(() => {});
   await pool.end();
-  console.log("схема track очищена и пересоздана пустой");
+  console.log("схемы track, market и crowd очищены и пересозданы пустыми");
 }
 
 if (failed > 0) {
