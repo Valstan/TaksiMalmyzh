@@ -5,18 +5,22 @@ import { allOk, createShare, listShares, revokeShare, setLive } from "@/lib/trac
 import { passengerMessages, passengerSend, setContactPhone, MAX_TEXT } from "@/lib/track-chat";
 import type { TrackPoint } from "@/lib/track-crypto";
 
-// Запись поездки — единственный эндпоинт с тремя действиями, а не три маршрута.
+// Запись поездки — один эндпоинт на все действия, а не маршрут на каждое.
 //
 // ⚠️ ЗАКРЫТ ПО УМОЛЧАНИЮ. Стенд открыт наружу (решение владельца 2026-08-29), и открытый
 // эндпоинт записи означал бы, что поездку может записать посторонний — то есть чужие
 // персональные данные, то есть ЭТАП B, в который проект не входил (M0.A §8.0). Гейт в
-// lib/track-gate.ts: нужны обе переменные, TRACK_RECORDING=on и TRACK_ETAP_A_TOKEN.
-// Без них ответ 404 — «такого адреса нет», а не «закрыто».
+// lib/track-gate.ts держится на двух вещах, и токена среди них нет: мастер-выключатель
+// TRACK_RECORDING=on и роль superadmin у вошедшего. Выключенная запись отвечает 404 —
+// «такого адреса нет» не сообщает постороннему, что здесь что-то есть; а вошедший без
+// роли (посетитель завёл себе аккаунт через единый вход) получает 401, тот же, что гость.
 //
-// Тело: { action: "start" | "points" | "finish" | "share" | "shares" | "revoke" | "live" | "ok", ... }
+// Тело: { action: "start" | "points" | "finish" | "share" | "shares" | "revoke" | "live"
+//                | "ok" | "chat" | "messages" | "phone", ... }
 //
-// Действия спринта 4 (share/shares/revoke/live/ok) авторизуются тем же writeToken поездки:
-// делиться поездкой и гасить тревогу может только тот, кто её пишет.
+// Действия спринтов 4 и 6 (share/shares/revoke/live/ok, chat/messages/phone) авторизуются
+// тем же writeToken поездки: делиться поездкой, гасить тревогу и писать в чат может только
+// тот, кто её пишет.
 
 export const dynamic = "force-dynamic";
 
