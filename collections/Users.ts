@@ -25,6 +25,47 @@ export const Users: CollectionConfig = {
     lockTime: 10 * 60 * 1000,
   },
   admin: { useAsTitle: "username" },
+  hooks: {
+    // Удаление из АДМИНКИ — третий путь, которым человек исчезает, и единственный, до
+    // которого нельзя дотянуться снаружи. Регламент и кнопка на `/dannye` зовут
+    // `eraseUser` и убирают за собой сами; сюда попадает всё остальное.
+    //
+    // ⚠️ Почему это не главный путь, а подстраховка. Хук выполняется ДО коммита
+    // транзакции Payload: если удаление после него откатится, мы уже сотрём заявки
+    // живого человека и запишем в журнал, что его стёрли. Поэтому `eraseUser` делает
+    // уборку ПОСЛЕ возврата из `delete` — там гарантия есть, — а хук помечен в контексте
+    // и промолчит. Здесь же выбор между «редкая ложная строка» и «удаление из админки
+    // не убирает за собой вовсе», и первое честнее.
+    afterDelete: [
+      async ({ req, id, doc }) => {
+        if (req.context?.erasureBasis) return; // уборка уже на вызывающем
+        try {
+          const { accountRetentionReady, recordUserErasure } = await import(
+            "../lib/account-retention.ts"
+          );
+          const { trackPool } = await import("../lib/track-db.ts");
+          const pool = trackPool();
+          // Гейт готовности: до миграции схем `market`/`track` нет, и попытка убрать за
+          // собой уронила бы персоналу удаление пользователя из админки. Молчаливый
+          // пропуск здесь безопаснее: висячие ссылки подметёт регламент.
+          if (!(await accountRetentionReady(pool))) return;
+          await recordUserErasure(
+            pool,
+            Number(id),
+            "admin",
+            String((doc as { role?: string })?.role ?? "user"),
+            (m) => req.payload.logger.error(m),
+          );
+        } catch (e) {
+          // Удаление уже состоялось — ронять его задним числом нельзя и незачем.
+          req.payload.logger.error(
+            `удаление ${id} из админки: уборка не прошла: ` +
+              (e instanceof Error ? e.message : String(e)),
+          );
+        }
+      },
+    ],
+  },
   access: {
     // В админку — только персонал. Посетитель с сессией остаётся на сайте.
     admin: ({ req }) => req.user?.role === "superadmin",

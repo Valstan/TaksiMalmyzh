@@ -784,6 +784,24 @@ try {
         eq(jb.basis, "request", "в журнале основание «просьба», а не срок");
         eq(jb.detail?.role, "user", "и роль записана");
 
+        // Удаление из админки приходит в ту же реализацию — только основанием и ролью.
+        // Проверяем её напрямую: хук коллекции поверх неё это три строки склейки, а вся
+        // логика уборки живёт здесь.
+        await shadow.query(
+          `INSERT INTO users (id, role, oidc_sub, last_login_at, created_at)
+           VALUES (42,'superadmin',NULL,now(),now())`);
+        await pool.query(`INSERT INTO market.claim (entry_id, user_id) VALUES (18, 42)`);
+        await shadow.query(`DELETE FROM users WHERE id = 42`);   // как это сделала бы админка
+        eq(await retention.recordUserErasure(shadow, 42, "admin", "superadmin"), true,
+          "уборка после удаления из админки прошла");
+        const { rows: [cl42] } = await pool.query(
+          `SELECT count(*)::int n FROM market.claim WHERE user_id = 42`);
+        eq(cl42.n, 0, "ссылки сотрудника тоже убраны");
+        const { rows: [js] } = await pool.query(
+          `SELECT action, basis FROM track.erasure_log WHERE target='42'`);
+        eq(js.action, "delete_staff_account", "у сотрудника своё действие в журнале");
+        eq(js.basis, "admin", "и основание «админка»");
+
         await shadow.query(`DELETE FROM users WHERE id = 41`);
         await shadow.query(`DELETE FROM entries WHERE id = 16`);
       }
