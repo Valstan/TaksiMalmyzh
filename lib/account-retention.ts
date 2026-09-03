@@ -211,10 +211,71 @@ export async function sweepOrphanUserRefs(pool: Pool = trackPool()): Promise<num
 }
 
 interface PayloadLike {
-  delete: (args: { collection: "users"; id: number; overrideAccess: boolean }) => Promise<unknown>;
+  delete: (args: {
+    collection: "users";
+    id: number;
+    overrideAccess: boolean;
+    context?: Record<string, unknown>;
+  }) => Promise<unknown>;
 }
 
 type Log = (message: string) => void;
+
+/**
+ * Ключ в `req.context`, которым удаление помечает себя как «уборка уже на мне».
+ *
+ * Хук `afterDelete` на коллекции ловит удаления, пришедшие мимо `eraseUser` (админка), и
+ * по отсутствию этого ключа понимает, что убирать за собой некому.
+ */
+export const ERASURE_CONTEXT_KEY = "erasureBasis";
+
+/**
+ * Уборка и запись в журнал — ЕДИНСТВЕННАЯ реализация на все пути удаления человека.
+ *
+ * Вызывается из двух мест: `eraseUser` (срок и просьба — там мы контролируем порядок) и
+ * хук `afterDelete` коллекции `users` (админка — туда иначе не дотянуться). Логика одна,
+ * различается только основание в журнале.
+ *
+ * Не бросает: удаление уже состоялось, и падать после него значит оставить человека
+ * удалённым, а нас — без записи о том, что мы за ним убрали. Ошибку отдаём наверх словами.
+ */
+export async function recordUserErasure(
+  pool: Pool,
+  userId: number,
+  basis: string,
+  role: string,
+  log: Log = () => {},
+): Promise<boolean> {
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await detachUserReferences(c, userId);
+    // Ни имени, ни `sub` в журнал не пишем: журнал доказывает исполнение срока, а не
+    // хранит то, срок чего вышел. Действие различает посетителя и сотрудника — это
+    // разные события, и сводить их в одну строку значило бы потерять смысл обоих.
+    await c.query(
+      `INSERT INTO track.erasure_log (action, basis, target, rows_est, detail)
+       VALUES ($1, $2, $3, 1, $4)`,
+      [
+        role === "superadmin" ? "delete_staff_account" : "delete_visitor_account",
+        basis,
+        String(userId),
+        JSON.stringify({ role, basis }),
+      ],
+    );
+    await c.query("COMMIT");
+    return true;
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    log(
+      `удаление аккаунта ${userId}: уборка ссылок не прошла: ` +
+        (e instanceof Error ? e.message : String(e)),
+    );
+    return false;
+  } finally {
+    c.release();
+  }
+}
 
 /**
  * Держит ли на человеке карточка бизнеса.
@@ -251,32 +312,22 @@ export async function eraseUser(
   userId: number,
   basis: string,
   log: Log = () => {},
+  role = "user",
 ): Promise<void> {
-  await payload.delete({ collection: "users", id: userId, overrideAccess: true });
+  // Метка в контексте говорит хуку коллекции «не трогай, уборка на мне»: иначе она
+  // случилась бы дважды — из хука и отсюда, и в журнале завелось бы по две строки на
+  // человека.
+  await payload.delete({
+    collection: "users",
+    id: userId,
+    overrideAccess: true,
+    context: { [ERASURE_CONTEXT_KEY]: basis },
+  });
 
-  const c = await pool.connect();
-  try {
-    await c.query("BEGIN");
-    await detachUserReferences(c, userId);
-    // Ни имени, ни `sub` в журнал не пишем: журнал доказывает исполнение срока, а не
-    // хранит то, срок чего вышел.
-    await c.query(
-      `INSERT INTO track.erasure_log (action, basis, target, rows_est, detail)
-       VALUES ('delete_visitor_account', $1, $2, 1, $3)`,
-      [basis, String(userId), JSON.stringify({ role: "user", basis })],
-    );
-    await c.query("COMMIT");
-  } catch (e) {
-    await c.query("ROLLBACK").catch(() => {});
-    // Аккаунт уже удалён — ронять поздно и незачем: висячие ссылки подметёт
-    // `sweepOrphanUserRefs` на ближайшем прогоне регламента.
-    log(
-      `удаление аккаунта ${userId}: уборка ссылок не прошла: ` +
-        (e instanceof Error ? e.message : String(e)),
-    );
-  } finally {
-    c.release();
-  }
+  // Уборка ПОСЛЕ того, как `delete` вернул управление: значит транзакция Payload уже
+  // закоммичена, и мы не пишем в журнал про человека, удаление которого потом откатится.
+  // Ровно этим путь через `eraseUser` лучше хука — там такой гарантии нет.
+  await recordUserErasure(pool, userId, basis, role, log);
 }
 
 /**
