@@ -5,6 +5,11 @@ import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
 import { pruneChat } from "./track-chat.ts";
 import { marketReady, pruneRequests } from "./market.ts";
 import { pruneRatings, ratingsReady } from "./ratings.ts";
+import {
+  ACCOUNT_RETENTION_MONTHS,
+  accountRetentionReady,
+  pruneVisitorAccounts,
+} from "./account-retention.ts";
 
 /** Лестница «мёртвой руки» считает минуты — и проверяется раз в минуту (M0.A §5.3). */
 const ESCALATE_EVERY_MS = 60 * 1000;
@@ -93,6 +98,42 @@ async function tick(log: Logger): Promise<void> {
     if (await crowdReady(trackPool())) {
       const pruned = await pruneCrowdSignals(trackPool());
       if (pruned) log.info(`краудсигналы: удалено по сроку ${pruned}`);
+    }
+    // Аккаунты посетителей (решение владельца 2026-09-03): 12 месяцев без входа — удаление.
+    // Гейт готовности снаружи, как у вызовов, рейтингов и краудсигналов: не подтверждена
+    // схема — прогон пропускается целиком, а не идёт по ослабленному условию.
+    // Payload берём динамическим импортом по той же причине, что и в lib/track-gate.ts:
+    // `@payload-config` — алиас сборщика, и обычный node его не резолвит, а модуль должен
+    // оставаться пригодным для проверок, где Payload не поднимают.
+    if (await accountRetentionReady(trackPool())) {
+      try {
+        const { getPayload } = await import("payload");
+        const { default: config } = await import("@payload-config");
+        const acc = await pruneVisitorAccounts(
+          await getPayload({ config }),
+          trackPool(),
+          ACCOUNT_RETENTION_MONTHS,
+          (m) => log.error(m),
+        );
+        if (acc.deleted || acc.keptInUse || acc.orphans) {
+          log.info(
+            `аккаунты посетителей: удалено по сроку ${acc.deleted} ` +
+              `(${ACCOUNT_RETENTION_MONTHS} мес), оставлено используемых ${acc.keptInUse}, ` +
+              `подметено висячих ссылок ${acc.orphans}`,
+          );
+        }
+        if (acc.failed) {
+          log.error(
+            `аккаунты посетителей: НЕ УДАЛОСЬ удалить ${acc.failed} — они остались в базе ` +
+              `со своими данными, срок по ним не исполнен`,
+          );
+        }
+      } catch (e) {
+        // Не роняем весь регламент: срок трасс важнее и не должен зависеть от Payload.
+        log.error(
+          `аккаунты посетителей: чистка НЕ ОТРАБОТАЛА: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
     if (r.runway < RUNWAY_ALERT_DAYS) {
       log.error(

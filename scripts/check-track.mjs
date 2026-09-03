@@ -551,6 +551,169 @@ try {
 
   // --- холодный слой по сроку
   eq(await maint.pruneFolded(pool, new Date(startedAt.getTime() + 200 * 86400000)), 1, "свёрнутых трасс погашено по сроку");
+
+  // --- ретеншн аккаунтов посетителей: 12 месяцев без входа (решение владельца 2026-09-03)
+  //
+  // Таблиц Payload у этой проверки нет: в CI она идёт против отдельной базы. А в базе
+  // разработчика они есть и НАСТОЯЩИЕ — прогонять по ним удаление людей нельзя ни при
+  // каких условиях. Поэтому `users` и `entries` поднимаются стендами в отдельной схеме:
+  // запрос ретеншна обращается к ним без имени схемы, и `search_path` теневого пула
+  // уводит его в стенды, а `public` остаётся нетронутым. Схемы `market` и `track` в
+  // запросе названы явно и подмене не подлежат — они настоящие.
+  //
+  // Чего этот приём не ловит: расхождение имён колонок со схемой, которую строит Payload.
+  // Стенд повторяет её вручную (`role`, `last_login_at`, `created_at`, `entries.owner_id`),
+  // и если Payload однажды переименует колонку, проверка останется зелёной. Ловит она
+  // другое, и ровно то, ради чего написана: три исключения из удаления.
+  {
+    const retention = await import("../lib/account-retention.ts");
+    const { MARKET_DDL_UP, MARKET_DDL_DOWN } = await import("../lib/market-ddl.ts");
+    const SH = "check_accounts";
+    // Без `,public` в search_path намеренно: с ним провал подмены не заметен — запрос
+    // молча ушёл бы в настоящую public.users базы разработчика. Схемы market и track в
+    // ретеншне названы явно, now()/to_regclass живут в pg_catalog, так что одной теневой
+    // схемы достаточно.
+    const shadow = new pg.Pool({ connectionString: uri, options: `-c search_path=${SH}` });
+    try {
+      await pool.query(`DROP SCHEMA IF EXISTS ${SH} CASCADE`);
+      await pool.query(`CREATE SCHEMA ${SH}`);
+      await pool.query(`
+        CREATE TABLE ${SH}.users (
+          id            integer PRIMARY KEY,
+          role          text NOT NULL,
+          oidc_sub      text,
+          last_login_at timestamptz,
+          created_at    timestamptz NOT NULL
+        );
+        CREATE TABLE ${SH}.entries (id integer PRIMARY KEY, owner_id integer);
+      `);
+      // Подмена состоялась? Без этой строки провал теневой схемы выглядел бы как успешный
+      // прогон — по настоящим таблицам базы разработчика.
+      const { rows: [shadowed] } = await shadow.query(
+        `SELECT to_regclass('users') = to_regclass('${SH}.users') AS yes`);
+      eq(shadowed.yes, true, "теневая схема подменила users");
+      await pool.query(MARKET_DDL_DOWN);
+      await pool.query(MARKET_DDL_UP);
+
+      const long = new Date(Date.now() - 400 * 86_400_000);  // заведомо больше 12 месяцев
+      const near = new Date(Date.now() - 45 * 86_400_000);   // больше месяца, меньше года
+      await shadow.query(
+        `INSERT INTO users (id, role, oidc_sub, last_login_at, created_at) VALUES
+           (1,'superadmin',NULL,$1,$1), (2,'user','sub-2',$2,$1), (3,'user','sub-3',$1,$1),
+           (4,'user','sub-4',$1,$1), (5,'user','sub-5',$1,$1), (6,'user','sub-6',NULL,$1),
+           (7,'user','sub-7',$1,$1), (8,'user',NULL,$1,$1)`,
+        [long, near],
+      );
+      await shadow.query(`INSERT INTO entries (id, owner_id) VALUES (10, 4), (11, NULL)`);
+      await pool.query(
+        `INSERT INTO market.claim (entry_id, user_id, status) VALUES (10,5,0), (11,7,2)`,
+      );
+      const { rows: [req] } = await pool.query(
+        `INSERT INTO market.request (entry_id, customer_user_id, address, phone)
+         VALUES (11, 3, 'ул. Прибрежная, 5', '+79120000000') RETURNING id`,
+      );
+
+      const stub = {
+        deleted: [],
+        async delete({ id }) {
+          this.deleted.push(id);
+          await shadow.query(`DELETE FROM users WHERE id = $1`, [id]);
+        },
+      };
+      const r = await retention.pruneVisitorAccounts(stub, shadow);
+
+      eq(r.deleted, 3, "удалено просроченных аккаунтов посетителей");
+      eq(r.keptInUse, 2, "оставлено используемых (владелец карточки и заявитель)");
+      eq(r.failed, 0, "отказов удаления не было");
+      eq(stub.deleted.sort((a, b) => a - b).join(","), "3,6,7", "удалены именно они");
+      const left = await shadow.query(`SELECT id FROM users ORDER BY id`);
+      eq(left.rows.map((x) => x.id).join(","), "1,2,4,5,8",
+        "остались персонал, свежий, владелец, заявитель и парольный без oidc_sub");
+
+      // Журнал: не «сколько строк», а «про кого и на каком основании» — иначе проверка
+      // зелена и при записи про чужих людей.
+      const jr = await pool.query(
+        `SELECT target, basis, detail FROM track.erasure_log
+          WHERE action='delete_visitor_account' ORDER BY id`);
+      eq(jr.rows.map((x) => x.target).join(","), "3,6,7", "в журнале записаны именно удалённые");
+      eq(jr.rows.every((x) => x.basis === `retention_${retention.ACCOUNT_RETENTION_MONTHS}m`), true,
+        "основание у всех — срок владельца");
+      eq(jr.rows.every((x) => x.detail?.role === "user" && x.detail?.reason === "нет входа дольше срока"), true,
+        "в журнале записана причина, а не пустота");
+      const { rows: [leak] } = await pool.query(
+        `SELECT count(*)::int n FROM track.erasure_log
+          WHERE action='delete_visitor_account'
+            AND (detail::text ILIKE '%name%' OR detail::text ILIKE '%sub%')`);
+      eq(leak.n, 0, "журнал не хранит того, срок чего вышел");
+
+      const { rows: [cl] } = await pool.query(`SELECT count(*)::int n FROM market.claim`);
+      eq(cl.n, 1, "заявка удалённого убрана, заявка живого осталась");
+      const { rows: [rqn] } = await pool.query(`SELECT count(*)::int n FROM market.request`);
+      eq(rqn.n, 1, "сам вызов остался бизнесу");
+      const { rows: [rq] } = await pool.query(
+        `SELECT customer_user_id FROM market.request WHERE id = $1`, [req.id]);
+      eq(rq.customer_user_id, null, "вызов отвязан от удалённого");
+
+      const again = await retention.pruneVisitorAccounts(stub, shadow);
+      eq(again.deleted, 0, "повторный прогон идемпотентен");
+
+      // Срок — не декорация: сузим его так, чтобы под него попал и «свежий» (45 суток).
+      const wide = await retention.pruneVisitorAccounts(stub, shadow, 1);
+      eq(wide.deleted, 1, "при сроке в месяц удаляется и свежий посетитель");
+      const { rows: [adm] } = await pool.query(
+        `SELECT count(*)::int n FROM ${SH}.users WHERE role='superadmin'`);
+      eq(adm.n, 1, "персонал не удаляется ни при каком сроке");
+      const { rows: [nosub] } = await pool.query(
+        `SELECT count(*)::int n FROM ${SH}.users WHERE id = 8`);
+      eq(nosub.n, 1, "посетитель без oidc_sub не удаляется: его вход мы не измеряем");
+
+      // Срок 0 означал бы «удалить всех» — такой аргумент всегда опечатка.
+      let threw = false;
+      try { await retention.pruneVisitorAccounts(stub, shadow, 0); } catch { threw = true; }
+      eq(threw, true, "нулевой срок отвергнут, а не исполнен");
+
+      // --- перепроверка вплотную к удалению: три охраны, каждая на своём кандидате
+      //
+      // Без этого блока stillExpired не проверен ничем: в основном сценарии он повторяет
+      // условие, по которому кандидат уже отобран, и провалиться не может. Гонку
+      // подсовываем заглушкой — она успевает изменить базу между перепроверками.
+      for (const [n, sql, why] of [
+        [21, `UPDATE users SET last_login_at = now() WHERE id = 21`, "успел войти"],
+        [22, `INSERT INTO entries (id, owner_id) VALUES (12, 22)`, "успел стать владельцем"],
+        [23, `INSERT INTO market.claim (entry_id, user_id, status) VALUES (13, 23, 0)`, "успел подать заявку"],
+      ]) {
+        await shadow.query(
+          `INSERT INTO users (id, role, oidc_sub, last_login_at, created_at)
+           VALUES (20,'user','sub-20',$1,$1), ($2,'user',$3,$1,$1)`,
+          [long, n, `sub-${n}`],
+        );
+        const racer = {
+          deleted: [],
+          async delete({ id }) {
+            this.deleted.push(id);
+            // Пока удаляем первого, второй «оживает» — ровно то окно, ради которого
+            // перепроверка и написана.
+            if (id === 20) await (sql.includes("market.") ? pool : shadow).query(sql);
+            await shadow.query(`DELETE FROM users WHERE id = $1`, [id]);
+          },
+        };
+        const race = await retention.pruneVisitorAccounts(racer, shadow);
+        eq(race.deleted, 1, `гонка: удалён только первый (второй ${why})`);
+        // 2 — владелец и заявитель из основного сценария, они никуда не делись; +1 — тот,
+        // кто ожил между выборкой и удалением.
+        eq(race.keptInUse, 3, `гонка: второй сохранён (${why})`);
+        const { rows: [alive] } = await shadow.query(`SELECT count(*)::int n FROM users WHERE id = $1`, [n]);
+        eq(alive.n, 1, `гонка: аккаунт ${n} цел`);
+        await shadow.query(`DELETE FROM users WHERE id = $1`, [n]);
+        await shadow.query(`DELETE FROM entries WHERE id = 12`);
+        await pool.query(`DELETE FROM market.claim WHERE user_id = $1`, [n]);
+      }
+    } finally {
+      await shadow.end().catch(() => {});
+      await pool.query(MARKET_DDL_DOWN).catch(() => {});
+      await pool.query(`DROP SCHEMA IF EXISTS ${SH} CASCADE`).catch(() => {});
+    }
+  }
 } finally {
   // Схема пересоздаётся пустой, а не сносится: миграция в payload_migrations помечена
   // применённой, и база разработчика без схемы разошлась бы со своим же журналом миграций.
