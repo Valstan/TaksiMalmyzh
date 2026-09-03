@@ -21,7 +21,7 @@ CREATE TABLE market.claim (
   entry_id  integer     NOT NULL,
   user_id   integer     NOT NULL,
   at        timestamptz NOT NULL DEFAULT now(),
-  status    smallint    NOT NULL DEFAULT 0,   -- 0 ждёт, 1 подтверждена, 2 отклонена
+  status    smallint    NOT NULL DEFAULT 0,   -- 0 ждёт, 1 подтверждена, 2 отклонена, 3 истекла
   UNIQUE (entry_id, user_id)
 );
 CREATE INDEX claim_pending_idx ON market.claim (at) WHERE status = 0;

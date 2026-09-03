@@ -12,7 +12,25 @@ import type { Entry } from "../payload-types.ts";
 
 export const REQUEST_RETENTION_DAYS = 30;
 
+/**
+ * Срок жизни нерассмотренной заявки «это мой бизнес» — решение владельца 2026-09-03.
+ *
+ * До него у заявки срока не было вовсе, и это протекало в ретеншн аккаунтов: заявитель
+ * исключён из удаления, пока заявка ждёт, — значит нерассмотренная заявка держала бы чужие
+ * персональные данные дольше обещанных 12 месяцев (`lib/account-retention.ts`).
+ * Исключение из срока не может само быть бессрочным.
+ */
+export const CLAIM_GRACE_DAYS = 30;
+
 // --- заявки ------------------------------------------------------------------------
+//
+// Статусы: 0 — ждёт звонка персонала, 1 — подтверждена, 2 — отклонена персоналом,
+// 3 — истекла без ответа.
+//
+// Тройка заведена отдельной, а не сведена к двойке намеренно: «отклонена» означает решение
+// человека, и автомат, ставящий её по таймеру, задним числом припишет персоналу отказ,
+// которого тот не выносил. Разница видна и заявителю: отклонённую заявку повторять
+// бессмысленно, истёкшую — можно и нужно.
 
 export type Claim = {
   id: number;
@@ -25,12 +43,35 @@ export type Claim = {
 };
 
 export async function createClaim(entryId: number, userId: number): Promise<"created" | "exists"> {
+  // Истёкшую заявку тот же человек может подать заново: `UNIQUE (entry_id, user_id)` иначе
+  // запер бы его навсегда из-за того, что персонал однажды не дошёл до звонка. Отклонённую
+  // (status = 2) не переоткрываем — это решение человека, и обходить его кнопкой нельзя.
   const r = await trackPool().query(
     `INSERT INTO market.claim (entry_id, user_id) VALUES ($1, $2)
-     ON CONFLICT (entry_id, user_id) DO NOTHING`,
+     ON CONFLICT (entry_id, user_id) DO UPDATE
+        SET status = 0, at = now()
+      WHERE market.claim.status = 3`,
     [entryId, userId],
   );
   return (r.rowCount ?? 0) > 0 ? "created" : "exists";
+}
+
+/**
+ * Погасить заявки, до которых персонал не дошёл за срок. Идемпотентно.
+ *
+ * Заявка не удаляется, а помечается истёкшей: заявитель должен увидеть, что произошло, и
+ * иметь возможность подать её снова, а персонал — что до неё не дошли руки.
+ */
+export async function expireStaleClaims(
+  pool = trackPool(),
+  days: number = CLAIM_GRACE_DAYS,
+): Promise<number> {
+  const r = await pool.query(
+    `UPDATE market.claim SET status = 3
+      WHERE status = 0 AND at < now() - ($1 || ' days')::interval`,
+    [String(days)],
+  );
+  return r.rowCount ?? 0;
 }
 
 export async function myClaims(userId: number): Promise<Map<number, number>> {

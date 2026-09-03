@@ -23,10 +23,9 @@
 //    (`market.claim.status = 0`). Заявку подтверждает персонал звонком, и между подачей и
 //    звонком может пройти сколько угодно: удалить заявителя посреди процедуры — значит
 //    оборвать её молча.
-//    ⚠️ У этого исключения СЕЙЧАС НЕТ ДНА: заявку в `status = 0` не гасит ничто, кроме руки
-//    персонала, поэтому нерассмотренная заявка держит аккаунт дольше обещанных 12 месяцев.
-//    Ограничить её возрастом можно только числом от владельца — как и сам срок; вопрос ему
-//    задан, до ответа исключение названо на странице `/dannye` прямым текстом.
+//    У исключения есть дно — 30 дней (`CLAIM_GRACE_DAYS`, решение владельца 2026-09-03):
+//    заявка, до которой персонал не дошёл за срок, гаснет и перестаёт защищать аккаунт.
+//    Исключение из срока не может само быть бессрочным, иначе оно отменяет срок.
 //
 // 4. Не трогает того, у кого нет `oidcSub`. Отметку входа двигает только выдача сессии
 //    через единый вход (`lib/oidc-session.ts`); парольный вход Payload её не двигает, и
@@ -42,6 +41,7 @@
 
 import type { Pool, PoolClient } from "pg";
 import { trackPool } from "./track-db.ts";
+import { CLAIM_GRACE_DAYS } from "./market.ts";
 
 /** Решение владельца 2026-09-03. Одно место, где живёт число. */
 export const ACCOUNT_RETENTION_MONTHS = 12;
@@ -84,7 +84,15 @@ const EXPIRED_PREDICATE = `
     AND COALESCE(u."last_login_at", u."created_at") < now() - ($MONTHS || ' months')::interval`;
 
 const OWNER_GUARD = `NOT EXISTS (SELECT 1 FROM "entries" e WHERE e."owner_id" = u."id")`;
-const CLAIM_GUARD = `NOT EXISTS (SELECT 1 FROM market.claim c WHERE c.user_id = u."id" AND c.status = 0)`;
+
+// Заявку защищает аккаунт только пока она в работе. Возраст проверяется здесь, а не только
+// через статус: `expireStaleClaims` гасит просроченные раз в час, и между её прогонами
+// заявка ещё числится ждущей. Без этого условия исключение из срока само оказалось бы
+// бессрочным — ровно та дыра, которую закрывает решение владельца 2026-09-03 о 30 днях.
+const CLAIM_GUARD = `NOT EXISTS (
+      SELECT 1 FROM market.claim c
+       WHERE c.user_id = u."id" AND c.status = 0
+         AND c.at > now() - interval '${CLAIM_GRACE_DAYS} days')`;
 
 /**
  * Кандидаты на удаление и те, кого срок достал, но мы держим.
@@ -209,6 +217,69 @@ interface PayloadLike {
 type Log = (message: string) => void;
 
 /**
+ * Держит ли на человеке карточка бизнеса.
+ *
+ * Нужно кнопке «удалить аккаунт»: удовлетворить просьбу человека, молча обезглавив при этом
+ * чужую карточку (`entries.owner_id` объявлен `ON DELETE SET NULL`), — не то же самое, что
+ * её исполнить. Такому человеку отвечаем словами, а не действием.
+ */
+export async function ownsEntries(pool: Pool, userId: number): Promise<boolean> {
+  const { rows } = await pool.query<{ yes: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM "entries" WHERE "owner_id" = $1) AS yes`,
+    [userId],
+  );
+  return rows[0]?.yes === true;
+}
+
+/**
+ * Удалить человека и убрать за собой — единственная точка, через которую это делается.
+ *
+ * Путей, которыми аккаунт исчезает, три: срок (регламент), просьба самого человека (кнопка
+ * на `/dannye`) и рука персонала в админке. Первые два обязаны давать одинаковый результат,
+ * иначе обещание «удаляем и убираем ссылки» верно только для одного из них; третий закрыт
+ * подметанием `sweepOrphanUserRefs`.
+ *
+ * `basis` — основание в журнале уничтожения: `retention_12m` у срока, `request` у просьбы.
+ * По нему потом отличают «истёк срок» от «человек попросил», а это разные истории.
+ *
+ * ПОРЯДОК: сначала удаление, потом уборка и журнал. Обратный при отказе удаления оставил бы
+ * ЖИВОГО человека без его заявок и со строкой в журнале о том, что его стёрли.
+ */
+export async function eraseUser(
+  payload: PayloadLike,
+  pool: Pool,
+  userId: number,
+  basis: string,
+  log: Log = () => {},
+): Promise<void> {
+  await payload.delete({ collection: "users", id: userId, overrideAccess: true });
+
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await detachUserReferences(c, userId);
+    // Ни имени, ни `sub` в журнал не пишем: журнал доказывает исполнение срока, а не
+    // хранит то, срок чего вышел.
+    await c.query(
+      `INSERT INTO track.erasure_log (action, basis, target, rows_est, detail)
+       VALUES ('delete_visitor_account', $1, $2, 1, $3)`,
+      [basis, String(userId), JSON.stringify({ role: "user", basis })],
+    );
+    await c.query("COMMIT");
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    // Аккаунт уже удалён — ронять поздно и незачем: висячие ссылки подметёт
+    // `sweepOrphanUserRefs` на ближайшем прогоне регламента.
+    log(
+      `удаление аккаунта ${userId}: уборка ссылок не прошла: ` +
+        (e instanceof Error ? e.message : String(e)),
+    );
+  } finally {
+    c.release();
+  }
+}
+
+/**
  * Прогон ретеншна. Идемпотентен: повторный вызов не находит уже удалённых.
  *
  * Удаление идёт локальным API Payload, а не `DELETE` по таблице: у коллекции есть сессии
@@ -263,7 +334,7 @@ export async function pruneVisitorAccounts(
     }
 
     try {
-      await payload.delete({ collection: "users", id, overrideAccess: true });
+      await eraseUser(payload, pool, id, `retention_${months}m`, log);
     } catch (e) {
       // Один битый аккаунт не должен останавливать очередь: иначе он навсегда первый по
       // `ORDER BY id`, и все остальные не удаляются никогда — при внешне работающем
@@ -273,34 +344,6 @@ export async function pruneVisitorAccounts(
       continue;
     }
     deleted++;
-
-    const cc = await pool.connect();
-    try {
-      await cc.query("BEGIN");
-      await detachUserReferences(cc, id);
-      // Ни имени, ни `sub` в журнал не пишем: журнал доказывает исполнение срока, а не
-      // хранит то, срок чего вышел.
-      await cc.query(
-        `INSERT INTO track.erasure_log (action, basis, target, rows_est, detail)
-         VALUES ('delete_visitor_account', $1, $2, 1, $3)`,
-        [
-          `retention_${months}m`,
-          String(id),
-          JSON.stringify({ role: "user", reason: "нет входа дольше срока" }),
-        ],
-      );
-      await cc.query("COMMIT");
-    } catch (e) {
-      await cc.query("ROLLBACK").catch(() => {});
-      // Аккаунт уже удалён — ронять прогон поздно и незачем: висячие ссылки подметёт
-      // `sweepOrphanUserRefs` на этом же прогоне или на следующем.
-      log(
-        `ретеншн аккаунтов: ${id} удалён, уборка ссылок не прошла: ` +
-          (e instanceof Error ? e.message : String(e)),
-      );
-    } finally {
-      cc.release();
-    }
   }
 
   const orphans = await sweepOrphanUserRefs(pool);

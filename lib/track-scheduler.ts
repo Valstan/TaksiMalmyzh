@@ -3,7 +3,7 @@ import { partitionRunwayDays, runMaintenance } from "./track-maintenance.ts";
 import { escalateTrips } from "./track-share.ts";
 import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
 import { pruneChat } from "./track-chat.ts";
-import { marketReady, pruneRequests } from "./market.ts";
+import { expireStaleClaims, marketReady, pruneRequests } from "./market.ts";
 import { pruneRatings, ratingsReady } from "./ratings.ts";
 import {
   ACCOUNT_RETENTION_MONTHS,
@@ -88,6 +88,12 @@ async function tick(log: Logger): Promise<void> {
     if (await marketReady(trackPool())) {
       const reqPruned = await pruneRequests(trackPool());
       if (reqPruned) log.info(`вызовы: удалено по сроку ${reqPruned}`);
+      // Заявки на владение, до которых персонал не дошёл за срок (решение владельца
+      // 2026-09-03). Гасим, а не удаляем: заявитель должен увидеть, что произошло, и иметь
+      // возможность подать снова. Заодно это снимает исключение из ретеншна аккаунтов —
+      // иначе оно было бы бессрочным и отменяло сам срок.
+      const expired = await expireStaleClaims(trackPool());
+      if (expired) log.info(`заявки на владение: истекло без ответа ${expired}`);
     }
     // Рейтинги (спринт 9): голоса старше года — вон.
     if (await ratingsReady(trackPool())) {
