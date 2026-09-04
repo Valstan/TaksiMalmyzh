@@ -1,4 +1,5 @@
 import { withPayload } from "@payloadcms/next/withPayload";
+import { DEFAULT_ISSUER } from "./lib/esa-issuer.mjs";
 // В режиме разработки React использует eval() для восстановления стека ошибок.
 // В сборке этого нет, поэтому послабление действует только на dev-стенде и в прод
 // не уезжает.
@@ -45,7 +46,16 @@ const nextConfig = {
               "font-src 'self'",
               "frame-ancestors 'none'",
               "base-uri 'self'",
-              "form-action 'self'",
+              // Хост ЕСА здесь — ради выхода: `form-action` проверяет не только адрес
+              // формы, но и адрес редиректа после отправки, а форма «выйти» уводит на
+              // `end_session` единого входа (app/(app)/api/auth/logout). Без этого браузер
+              // молча оборвал бы последний шаг выхода.
+              //
+              // ⚠️ Значение фиксируется на СБОРКЕ (Next кладёт заголовки в манифест
+              // маршрутов), поэтому берётся константа, а не `OIDC_ISSUER` из env бокса:
+              // переменную здесь прочитал бы CI, а не прод. Переопределят issuer — править
+              // и эту строку.
+              `form-action 'self' ${DEFAULT_ISSUER}`,
             ].join("; "),
           },
           { key: "Referrer-Policy", value: "no-referrer" },

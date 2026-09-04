@@ -16,10 +16,12 @@
 // (404), как и у записи поездок: отсутствие функции не должно выглядеть как «закрыто».
 
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { DEFAULT_ISSUER } from "./esa-issuer.mjs";
 import { ROOT_SITE } from "./sites";
 
-/** `вход.вмалмыже.рф` в punycode: в OAuth-полях кириллица не проходит (G108). */
-export const DEFAULT_ISSUER = "https://xn--b1ae3a1a.xn--80adkdyec4j.xn--p1ai";
+// Адрес ЕСА лежит в `lib/esa-issuer.mjs`, потому что он нужен ещё и конфигу Next (CSP
+// `form-action`), а тот TypeScript не импортирует. Здесь — привычная точка входа для кода.
+export { DEFAULT_ISSUER };
 
 export const CALLBACK_PATH = "/api/auth/oidc/callback";
 
@@ -62,6 +64,9 @@ interface Discovery {
   authorization_endpoint: string;
   token_endpoint: string;
   userinfo_endpoint?: string;
+  // Выход появился у ЕСА только 2026-09-04 и по стандарту необязателен, поэтому поле
+  // необязательное: старый документ (или другой issuer из env) не должен ломать выход.
+  end_session_endpoint?: string;
   jwks_uri: string;
   issuer: string;
 }
@@ -131,6 +136,31 @@ export async function authorizeUrl(cfg: OidcConfig, p: AuthorizeParams): Promise
   url.searchParams.set("nonce", p.nonce);
   url.searchParams.set("code_challenge", p.codeChallenge);
   url.searchParams.set("code_challenge_method", "S256");
+  return url.toString();
+}
+
+/**
+ * Куда отправить человека ПОСЛЕ того, как своя сессия уже погашена, чтобы погасла и
+ * сессия единого входа (RP-initiated logout). `null` — если ЕСА выхода не объявляет.
+ *
+ * Зачем: выход на сайте гасил только сайт. Живая кука ЕСА молча авторизовала человека
+ * снова на первой же перезагрузке — заметил владелец 2026-09-03, ЕСА выкатил выход
+ * 2026-09-04. Гасить надо обе сессии, иначе «выйти» не значит «вышел».
+ *
+ * Адрес возврата строится из `redirect_uri`, а не из адреса запроса: ЕСА принимает
+ * возврат, только если его origin совпадает с origin зарегистрированного адреса, а за
+ * nginx приложение видит себя как `localhost` (G302). Поддомен матрёшки он тоже не примет.
+ *
+ * `id_token_hint` не шлём намеренно: ID-токен нигде не хранится — из него берётся личность,
+ * и он забывается. Заводить хранение чужого токена ради выхода не станем; `client_id`
+ * стандартом разрешён и ЕСА его принимает.
+ */
+export async function endSessionUrl(cfg: OidcConfig): Promise<string | null> {
+  const doc = await discover(cfg);
+  if (!doc.end_session_endpoint) return null;
+  const url = new URL(doc.end_session_endpoint);
+  url.searchParams.set("client_id", cfg.clientId);
+  url.searchParams.set("post_logout_redirect_uri", new URL("/", cfg.redirectUri).toString());
   return url.toString();
 }
 
