@@ -8,6 +8,12 @@ name: deploy
 # печатаются в лог прогона, а логи публичного репозитория публичны (письмо brain
 # 2026-08-29). По той же причине здесь нет ни одного echo с фактами о сервере и ни
 # одного дампа журнала при падении.
+#
+# ⚠️ И по той же причине у каждого ssh/scp заглушён stderr: маскировка GitHub срабатывает
+# на ПОЛНОЕ значение секрета, а DEPLOY_TARGET — это `пользователь@хост`; сам ssh при отказе
+# печатает «connect to host <хост> port <порт>», то есть хост и порт отдельными словами, и
+# такую строку маскировка не ловит. Диагностика удалённых скриптов идёт в stdout, сюда
+# попадает код возврата: 255 — не соединились, иное — сказал сам скрипт.
 
 on:
   workflow_dispatch:
@@ -64,7 +70,15 @@ jobs:
           TARGET: ${{ secrets.DEPLOY_TARGET }}
           APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
           SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-        run: scp -P "$SSH_PORT" release.tar.gz "$TARGET:$APP_DIR/incoming.tar.gz"
+        run: |
+          set +e
+          scp -P "$SSH_PORT" release.tar.gz "$TARGET:$APP_DIR/incoming.tar.gz" 2>/dev/null
+          rc=$?
+          set -e
+          if [ "$rc" != "0" ]; then
+            echo "scp не доставил пакет (код $rc); детали в публичный лог не печатаем"
+          fi
+          exit "$rc"
 
       - name: Активация релиза
         env:
@@ -76,7 +90,14 @@ jobs:
         # текст внутри команды прошёл бы четыре парсера подряд (мандат D-046).
         run: |
           RELEASE="$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
-          ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_DIR" "$RELEASE" "$SERVICE" < deploy/remote-activate.sh
+          set +e
+          ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_DIR" "$RELEASE" "$SERVICE"             < deploy/remote-activate.sh 2>/dev/null
+          rc=$?
+          set -e
+          if [ "$rc" = "255" ]; then
+            echo "ssh не соединился с боксом (код 255); детали в публичный лог не печатаем"
+          fi
+          exit "$rc"
 
       - name: Смоук
         env:
@@ -99,4 +120,11 @@ jobs:
         # версионный (docs/DOMAINS.md), и зашитая в двух местах версия однажды разойдётся.
         run: |
           MAPLIBRE=$(node -p "require('./node_modules/maplibre-gl/package.json').version")
-          ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_PORT" "$MAPLIBRE" "$SMOKE_URL" < deploy/remote-smoke.sh
+          set +e
+          ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_PORT" "$MAPLIBRE" "$SMOKE_URL"             < deploy/remote-smoke.sh 2>/dev/null
+          rc=$?
+          set -e
+          if [ "$rc" = "255" ]; then
+            echo "ssh не соединился с боксом (код 255); детали в публичный лог не печатаем"
+          fi
+          exit "$rc"
