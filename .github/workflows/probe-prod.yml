@@ -1,0 +1,72 @@
+name: probe-prod
+
+# Read-only проба прода: смотрит на живую базу и на выход из единого входа, ничего не
+# меняет. Заведена по рекомендации brain 2026-09-04 после третьего рецидива [G231] в
+# экосистеме: схема прода тихо расходится с кодом, гейты этого не видят по построению, и
+# первым узнаёт пользователь. Разбор — в deploy/remote-probe.sh.
+#
+# Раз в сутки и по кнопке. Чаще незачем: дрейф вносит выкатка, а не время.
+#
+# Все адреса и пути приходят СЕКРЕТАМИ, не через vars: значения vars печатаются в лог, а
+# логи публичного репозитория публичны (AGENTS.md, «recon-поверхность»).
+
+on:
+  schedule:
+    # 05:17 UTC — не на ровный час: в ровные минуты у GitHub очередь, и запуск съезжает.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: probe-prod
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Список коллекций из конфига
+        # Слаги снимаются из сгенерированных типов Payload, а не пишутся руками: это
+        # отражение конфига, и второго экземпляра списка в проекте не появляется.
+        # Служебные коллекции Payload (`payload-*`) в locked_documents_rels колонок не
+        # имеют — они и есть эта служебная механика.
+        run: |
+          SLUGS=$(node -e '
+            const fs = require("node:fs");
+            const src = fs.readFileSync("payload-types.ts", "utf8");
+            const block = src.match(/\n  collections: \{([\s\S]*?)\n  \};/);
+            if (!block) { console.error("не нашёл список коллекций в payload-types.ts"); process.exit(1); }
+            const slugs = [...block[1].matchAll(/^\s+'"'"'?([a-zA-Z0-9_-]+)'"'"'?:/gm)]
+              .map((m) => m[1])
+              .filter((s) => !s.startsWith("payload-"));
+            if (!slugs.length) { console.error("список коллекций пуст"); process.exit(1); }
+            console.log(slugs.join(","));
+          ')
+          echo "SLUGS=$SLUGS" >> "$GITHUB_ENV"
+          echo "коллекций: $SLUGS"
+
+      - name: Ключ доступа
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$HOSTS" > ~/.ssh/known_hosts
+
+      - name: Проба
+        env:
+          TARGET: ${{ secrets.DEPLOY_TARGET }}
+          APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          APP_PORT: ${{ secrets.DEPLOY_APP_PORT }}
+        # Скрипт уходит файлом на stdin, а не сочиняется здесь строкой (мандат D-046).
+        run: |
+          ssh -p "$SSH_PORT" "$TARGET" bash -s -- "$APP_DIR" "$APP_PORT" "$SLUGS" < deploy/remote-probe.sh
