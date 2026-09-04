@@ -83,13 +83,16 @@ fi
 # Одна точка выполнения запроса на весь скрипт: формат вывода у обоих клиентов одинаков
 # (значения через «|», строки через перевод), иначе проверки разъехались бы по клиентам.
 run_sql() {
-  local query="$1"
+  local query="$1" out rc=0
+  # Код возврата клиента проверяется явно: при `set -e` неудачный запрос внутри подстановки
+  # убил бы прогон молча. Текст ошибки наружу НЕ идёт — клиент печатает в него адрес сервера
+  # базы, а лог публичный (AGENTS.md, «recon-поверхность»); достаточно кода.
   if [ "$CLIENT" = "psql" ]; then
-    PGCONNECT_TIMEOUT=10 psql "$DATABASE_URI" -Atqc "$query"
+    out=$(PGCONNECT_TIMEOUT=10 psql "$DATABASE_URI" -Atqc "$query" 2>/dev/null) || rc=$?
   else
     # `node -e` — всегда CommonJS, поэтому require здесь законен; каталог релиза даёт
     # доступ к `pg` из трассированных зависимостей Payload.
-    (cd "$APP_DIR/current" && DATABASE_URI="$DATABASE_URI" SQL="$query" node -e '
+    out=$(cd "$APP_DIR/current" && DATABASE_URI="$DATABASE_URI" SQL="$query" node -e '
       const { Client } = require("pg");
       const c = new Client({ connectionString: process.env.DATABASE_URI });
       c.connect()
@@ -97,13 +100,18 @@ run_sql() {
         .then((r) => {
           const out = r.rows
             .map((row) => Object.values(row).map((v) => (v === null ? "" : v)).join("|"))
-            .join("\n");
+            .join(String.fromCharCode(10));
           if (out) console.log(out);
         })
-        .catch((e) => { console.log("проба: запрос не прошёл — " + e.message); process.exit(1); })
+        .catch(() => { process.exit(1); })
         .finally(() => c.end());
-    ')
+    ' 2>/dev/null) || rc=$?
   fi
+  if [ "$rc" != "0" ]; then
+    echo "проба: запрос к базе не прошёл (код $rc); текст ошибки в публичный лог не печатаем"
+    exit 1
+  fi
+  echo "$out"
 }
 
 # Диагностика уходит в stdout, а НЕ в stderr, и это не косметика: вызывающий workflow
@@ -114,27 +122,48 @@ fail() { echo "$1"; exit 1; }
 
 # ── 1. Дрейф схемы: колонки locked_documents_rels против списка коллекций ──────────────
 
-COLUMNS=$(run_sql "SELECT column_name FROM information_schema.columns
-                   WHERE table_name = 'payload_locked_documents_rels' ORDER BY column_name;")
+COLUMNS_SQL="SELECT column_name FROM information_schema.columns
+             WHERE table_name = 'payload_locked_documents_rels' ORDER BY column_name;"
+
+# Каких колонок под коллекции не хватает в переданном списке. Вынесено в функцию, потому
+# что спрашивать приходится дважды — см. ниже, зачем.
+missing_columns() {
+  local cols="$1" slug column out=""
+  for slug in ${SLUGS//,/ }; do
+    # Payload переводит слаг в имя колонки через snake_case: дефисы становятся
+    # подчёркиваниями (`my-thing` → `my_thing_id`).
+    column="${slug//-/_}_id"
+    echo "$cols" | grep -qx "$column" || out="$out $slug"
+  done
+  echo "$out"
+}
+
+COLUMNS=$(run_sql "$COLUMNS_SQL")
 test -n "$COLUMNS" || fail "проба: таблицы payload_locked_documents_rels нет вовсе"
 
-missing=""
-count=0
-for slug in ${SLUGS//,/ }; do
-  count=$((count + 1))
-  # Payload переводит слаг в имя колонки через snake_case: дефисы становятся
-  # подчёркиваниями (`my-thing` → `my_thing_id`).
-  column="${slug//-/_}_id"
-  echo "$COLUMNS" | grep -qx "$column" || missing="$missing $slug"
-done
+count=$(echo "$SLUGS" | tr ',' '\n' | grep -c .)
+missing=$(missing_columns "$COLUMNS")
+
+# ⚠️ Прежде чем объявить дрейф — переспрашиваем. 2026-09-04 прогон отчитался «нет колонки
+# entries_id», а следующий через несколько минут показал её на месте: схема не менялась и
+# выкаток между прогонами не было, то есть первый ответ был неполным. Причину поймать не
+# удалось, но реакция от неё не зависит: дрейф схемы — состояние СТОЙКОЕ, он не рассосётся
+# за три секунды, а вот случайно неполный ответ рассосётся. Алерт, который иногда врёт,
+# перестают читать целиком — это дороже, чем лишний запрос.
+if [ -n "$missing" ]; then
+  sleep 3
+  COLUMNS=$(run_sql "$COLUMNS_SQL")
+  missing=$(missing_columns "$COLUMNS")
+  if [ -n "$missing" ]; then
+    echo "дрейф схемы: в payload_locked_documents_rels нет колонок под коллекции:$missing"
+    echo "получено колонок: $(echo "$COLUMNS" | tr '\n' ' ')"
+    fail "лечится ALTER TABLE … ADD COLUMN IF NOT EXISTS \"<коллекция>_id\" integer + FK + индекс (G35)"
+  fi
+  echo "  схема      первый ответ был неполным, повтор чист — дрейфа нет"
+fi
 
 # Колонки на коллекции — это всё, что не служебная четвёрка самой таблицы.
 have=$(echo "$COLUMNS" | grep -vxE 'id|order|parent_id|path' | grep -c '_id$' || true)
-
-if [ -n "$missing" ]; then
-  echo "дрейф схемы: в payload_locked_documents_rels нет колонок под коллекции:$missing"
-  fail "лечится ALTER TABLE … ADD COLUMN IF NOT EXISTS \"<коллекция>_id\" integer + FK + индекс (G35)"
-fi
 echo "  схема      колонок $have = коллекций $count, чисто"
 
 # ── 2. Регламент трасс: ходит ли расписание ───────────────────────────────────────────
