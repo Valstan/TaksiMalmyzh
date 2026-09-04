@@ -679,11 +679,14 @@ Payload, что и пароль. Поле `users.oidcSub` (уникальное)
    нет, один `redirect_uri`
    `/api/auth/oidc/callback` на корневом домене (в punycode, сверять байт-в-байт), scopes
    `openid profile`, discovery `/.well-known/openid-configuration`, RS256. Признака «через
-   ВК» в токене не будет (D-063) — пользователь = `sub`. Logout'а у ЕСА нет.
+   ВК» в токене не будет (D-063) — пользователь = `sub`. **Выход у ЕСА появился 2026-09-04**
+   (`end_session_endpoint` в discovery); наш редирект на него построен в тот же день —
+   `docs/AUTH_ESA.md` §«Выход».
    ✅ **Смоук прогнан 2026-09-03, ack отправлен** (PR #61). Без аккаунта доказано: discovery
    живой и `issuer` совпадает байт-в-байт, JWKS канонически `/.well-known/jwks.json` (путь
    `/oidc/jwks` из письма не существует), `S256` и `RS256` поддержаны, `auth_method=none`
-   штатен, `end_session_endpoint` в документе отсутствует, и главное — **клиент `pozvoni`
+   штатен, `end_session_endpoint` в документе тогда отсутствовал (ЕСА выкатил выход 04.09,
+   документ теперь его объявляет), и главное — **клиент `pozvoni`
    заведён**: `POST /oidc/token` с неверным кодом даёт `invalid_grant`, а несуществующий
    `client_id` — `invalid_client`. ✅ **`redirect_uri` байт-в-байт доказан живым кругом
    владельца 2026-09-03**: headless-путь его подтвердить не мог (токен-эндпоинт ищет код
