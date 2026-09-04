@@ -7,6 +7,11 @@
 # из них, а выглядит это как ошибка в коде. Файл проходит ноль.
 #
 # Аргументы: <каталог приложения> <имя релиза> <имя службы>
+#
+# ⚠️ Диагностика печатается в stdout, а не в stderr: вызывающий workflow глушит stderr
+# клиента ssh целиком, потому что тот при отказе печатает имя хоста и порт отдельными
+# словами, а маскировка GitHub ловит только полное значение секрета (AGENTS.md, D-038).
+# Писали бы сюда — свои же сообщения о поломке исчезли бы вместе с чужими.
 
 set -euo pipefail
 
@@ -17,7 +22,7 @@ SERVICE="${3:?не задано имя службы}"
 INCOMING="$APP_DIR/incoming.tar.gz"
 TARGET="$APP_DIR/releases/$RELEASE"
 
-test -f "$INCOMING" || { echo "нет пакета $INCOMING" >&2; exit 1; }
+test -f "$INCOMING" || { echo "нет пакета $INCOMING"; exit 1; }
 
 mkdir -p "$TARGET"
 tar -xzf "$INCOMING" -C "$TARGET"
@@ -26,7 +31,7 @@ rm -f "$INCOMING"
 # Пакет считается годным, только если в нём есть всё, без чего приложение
 # поднимется, но окажется сломанным у пользователя.
 for required in "server.js" ".next/static" "public/map/malmyzh.pmtiles" "data/addresses.json"; do
-  test -e "$TARGET/$required" || { echo "в пакете нет $required" >&2; rm -rf "$TARGET"; exit 1; }
+  test -e "$TARGET/$required" || { echo "в пакете нет $required"; rm -rf "$TARGET"; exit 1; }
 done
 
 # Переключение симлинка атомарно: mv -T заменяет его одним шагом, без промежутка,

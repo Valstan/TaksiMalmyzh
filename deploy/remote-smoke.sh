@@ -32,6 +32,11 @@
 # ошибки, неотличимый от настоящей поломки (docs/SESSION_HANDOFF.md).
 #
 # Аргументы: <локальный порт> <версия maplibre> [<публичный URL> ...]
+#
+# ⚠️ Диагностика печатается в stdout, а не в stderr: вызывающий workflow глушит stderr
+# клиента ssh целиком, потому что тот при отказе печатает имя хоста и порт отдельными
+# словами, а маскировка GitHub ловит только полное значение секрета (AGENTS.md, D-038).
+# Писали бы сюда — свои же сообщения о поломке исчезли бы вместе с чужими.
 
 set -euo pipefail
 
@@ -47,7 +52,7 @@ for i in $(seq 1 "$TRIES"); do
     break
   fi
   if [ "$i" = "$TRIES" ]; then
-    echo "страница не ответила за $TRIES попыток" >&2
+    echo "страница не ответила за $TRIES попыток"
     exit 1
   fi
   sleep 2
@@ -58,19 +63,19 @@ check() {
 
   local code
   code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$base/")
-  test "$code" = "200" || { echo "$label — страница: $code, ожидалось 200" >&2; exit 1; }
+  test "$code" = "200" || { echo "$label — страница: $code, ожидалось 200"; exit 1; }
   echo "  $label страница        200"
 
   # Прибрежная улица выбрана не случайно: она в той части города, которую срезал
   # ошибочный bbox первой редакции M0.B (§5). Неверно собранная вырезка тут и всплывёт.
   local hits
   hits=$(curl -sS --max-time 20 "$base/api/search?q=%D0%9F%D1%80%D0%B8%D0%B1%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F" | grep -c '"kind"' || true)
-  test "$hits" -ge 1 || { echo "$label — поиск адреса ничего не вернул" >&2; exit 1; }
+  test "$hits" -ge 1 || { echo "$label — поиск адреса ничего не вернул"; exit 1; }
   echo "  $label поиск адреса    найдено"
 
   local range
   range=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -r 0-16 "$base/map/malmyzh.pmtiles")
-  test "$range" = "206" || { echo "$label — карта: $range, ожидалось 206" >&2; exit 1; }
+  test "$range" = "206" || { echo "$label — карта: $range, ожидалось 206"; exit 1; }
   echo "  $label карта (Range)   206"
 
   # Воркер MapLibre — проверяется ТИП, а не только код ответа. 2026-08-30 карта была
@@ -86,14 +91,14 @@ check() {
     application/javascript*|text/javascript*)
       echo "  $label воркер карты    $wtype" ;;
     *)
-      echo "$label — воркер MapLibre отдан как «$wtype», а нужен JS-тип: карта будет серой" >&2
+      echo "$label — воркер MapLibre отдан как «$wtype», а нужен JS-тип: карта будет серой"
       exit 1 ;;
   esac
 
   # Справочник ходит в базу: 200 здесь значит «миграции применились и БД жива».
   local dir
   dir=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$base/nomera")
-  test "$dir" = "200" || { echo "$label — справочник: $dir, ожидалось 200" >&2; exit 1; }
+  test "$dir" = "200" || { echo "$label — справочник: $dir, ожидалось 200"; exit 1; }
   echo "  $label справочник      200"
 }
 
@@ -115,7 +120,7 @@ else
     # в списке отчитался бы «сертификат валиден».
     case "$url" in
       https://*) ;;
-      *) echo "публично $n — адрес не https, сертификат непроверяем" >&2; exit 1 ;;
+      *) echo "публично $n — адрес не https, сертификат непроверяем"; exit 1 ;;
     esac
 
     # Сертификат проверяется отдельно: истёкший или неверный серт даёт ошибку
@@ -123,7 +128,7 @@ else
     # «сеть моргнула». У нового домена матрёшки это самая частая поломка: DNS уже
     # есть, приложение отвечает, а серт в панели ещё не выпущен (G153).
     tls=$(curl -sS -o /dev/null -w '%{ssl_verify_result}' --max-time 20 "$url/")
-    test "$tls" = "0" || { echo "публично $n — сертификат не прошёл проверку ($tls)" >&2; exit 1; }
+    test "$tls" = "0" || { echo "публично $n — сертификат не прошёл проверку ($tls)"; exit 1; }
     echo "  публично $n сертификат    валиден"
   done
 fi
