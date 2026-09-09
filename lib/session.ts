@@ -3,6 +3,7 @@
 // Одна точка, где страница узнаёт, кто пришёл: шапке нужно имя, гейтам — роль.
 // Сломанная или чужая сессия — это гость, а не ошибка страницы.
 
+import { cache } from "react";
 import { headers } from "next/headers";
 
 export interface SessionUser {
@@ -12,7 +13,15 @@ export interface SessionUser {
   label: string;
 }
 
-export async function currentUser(): Promise<SessionUser | null> {
+/**
+ * ⚠️ Обёрнута в `cache()` не ради скорости, а потому что с 2026-09-10 тулбар в общем
+ * layout зовёт её на КАЖДОЙ странице — а `/`, `/nomera`, `/kabinet`, `/dannye` и
+ * `/poezdki` зовут её же в своём теле. Без дедупликации это два `payload.auth()` за
+ * один рендер: две проверки одной и той же куки, два запроса к базе. `cache()` из React
+ * действует в пределах одного запроса и ключуется по аргументам — их здесь нет, значит
+ * попадание всегда.
+ */
+export const currentUser = cache(async function currentUser(): Promise<SessionUser | null> {
   try {
     const { getPayload } = await import("payload");
     const { default: config } = await import("@payload-config");
@@ -27,4 +36,4 @@ export async function currentUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
-}
+});

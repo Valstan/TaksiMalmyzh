@@ -1,11 +1,18 @@
+import Link from "next/link";
 import { getPayload } from "payload";
 import config from "@payload-config";
 import { headers } from "next/headers";
 import type { Metadata } from "next";
 import SuggestForm from "@/components/SuggestForm";
-import SiteHeader from "@/components/SiteHeader";
+import PageHead from "@/components/PageHead";
 import DirectoryList from "@/components/DirectoryList";
-import { resolveSite, siteCategories } from "@/lib/sites";
+import {
+  ROOT_SITE,
+  WHOLE_SERVICE_FALLBACK,
+  resolveSite,
+  siteCategories,
+  siteHref,
+} from "@/lib/sites";
 import { crowdReady, entryStats } from "@/lib/crowd-signals";
 import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
@@ -56,8 +63,15 @@ export default async function NomeraPage({
   const ratings = (await ratingsReady()) ? await ratingStats(docs.map((d) => d.id)) : undefined;
 
   return (
-    <main className="page">
-      <SiteHeader site={site} page="directory" />
+    <main className="page" id="main" tabIndex={-1}>
+      <PageHead title="Справочник номеров" sub={site.tagline}>
+        <Link href="/">← к карте</Link>
+        {site.id !== ROOT_SITE.id && !showAll && (
+          <a href={siteHref(site, ROOT_SITE, "/nomera", WHOLE_SERVICE_FALLBACK)}>
+            Весь справочник города
+          </a>
+        )}
+      </PageHead>
 
       <p className="page-sub">
         Нажмите на номер — телефон наберёт сам. Цены справочные, не оферта: уточняйте

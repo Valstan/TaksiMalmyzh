@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import SiteToolbar from "@/components/SiteToolbar";
 import { resolveSite } from "@/lib/sites";
 import "./globals.css";
 
@@ -29,10 +30,27 @@ export const viewport: Viewport = {
   themeColor: "#f6f5f2",
 };
 
+// ⚠️ Тулбар в корневом layout делает динамическими ВСЕ страницы группы `(app)`: он читает
+// `Host` и сессию. Сегодня это ничего не ломает — все семь страниц и так объявляли
+// `dynamic = "force-dynamic"`, — но с этого дня статической страницы под `(app)` быть уже
+// не может, и это ограничение постоянное.
+//
+// ⚠️ И второе следствие: имя вошедшего теперь есть в HTML ЛЮБОЙ страницы. Общий кэш перед
+// приложением (`proxy_cache` у nginx, CDN) стал бы утечкой имён между людьми. Сейчас его
+// нет — динамические ответы App Router уходят с `no-store`, а `deploy/nginx.conf.example`
+// кэш не включает; появится — это инвариант, который придётся держать явно.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body>
+        {/* Бар добавляет четыре-шесть остановок табуляции перед содержимым на каждой
+            странице — без этой ссылки клавиатурой до текста не добраться коротким путём. */}
+        <a className="skip-link" href="#main">
+          К содержимому
+        </a>
+        <SiteToolbar />
+        {children}
+      </body>
     </html>
   );
 }
