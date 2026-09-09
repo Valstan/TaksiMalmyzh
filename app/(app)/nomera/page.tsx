@@ -18,6 +18,7 @@ import { crowdReady, entryStats } from "@/lib/crowd-signals";
 import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
 import { ratingsReady, ratingStats } from "@/lib/ratings";
+import { karmaReady, karmaStats } from "@/lib/karma";
 
 // Страница ходит в базу — пререндерить её на сборке нельзя (в CI базы нет),
 // а кэшировать надолго не нужно: правки супер-админа должны быть видны сразу.
@@ -79,6 +80,7 @@ export default async function NomeraPage({
   const viewer = await currentUser();
   const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
   const ratings = (await ratingsReady()) ? await ratingStats(docs.map((d) => d.id)) : undefined;
+  const karma = (await karmaReady()) ? await karmaStats(docs.map((d) => d.id)) : undefined;
 
   return (
     <main className="page" id="main" tabIndex={-1}>
@@ -112,6 +114,7 @@ export default async function NomeraPage({
         viewer={viewer}
         claims={claims}
         ratings={ratings}
+        karma={karma}
       />
 
       <SuggestForm defaultCategory={defaultCategory} />
