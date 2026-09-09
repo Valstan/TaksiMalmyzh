@@ -1,12 +1,19 @@
 import { withPayload } from "@payloadcms/next/withPayload";
 import { DEFAULT_ISSUER } from "./lib/esa-issuer.mjs";
+
+// Счётчик Метрики — единственный сторонний хост, которому политика разрешает грузиться.
+// Значение продублировано строкой, а не импортом из `lib/metrika.ts`: этот конфиг читает
+// сборщик обычным node, а `lib/*.ts` собирается TypeScript'ом — тот же случай, что и с
+// `DEFAULT_ISSUER`, ради которого рядом лежит `.mjs`. Расхождение поймает CI: `metrikaHost`
+// проверяется в `scripts/check-assets.mjs`.
+const METRIKA_HOST = "https://mc.yandex.ru";
 // В режиме разработки React использует eval() для восстановления стека ошибок.
 // В сборке этого нет, поэтому послабление действует только на dev-стенде и в прод
 // не уезжает.
 const dev = process.env.NODE_ENV === "development";
 const scriptSrc = dev
-  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-  : "script-src 'self' 'unsafe-inline'";
+  ? `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${METRIKA_HOST}`
+  : `script-src 'self' 'unsafe-inline' ${METRIKA_HOST}`;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -31,18 +38,26 @@ const nextConfig = {
       {
         source: "/:path*",
         headers: [
-          // Ни один сторонний хост не должен требоваться для работы страницы:
-          // тайлы, шрифты и спрайты лежат у нас. Политика это фиксирует, а не
-          // надеется на дисциплину — нарушение станет видно как ошибка в консоли.
+          // Ни один сторонний хост не должен требоваться для РАБОТЫ страницы: тайлы,
+          // шрифты и спрайты лежат у нас. Политика это фиксирует, а не надеется на
+          // дисциплину — нарушение станет видно как ошибка в консоли.
+          //
+          // ⚠️ С 2026-09-10 в политике ровно одно исключение — `mc.yandex.ru`, счётчик
+          // Метрики (решение владельца 09.09, мандат brain). Слово «работы» в правиле выше
+          // теперь несёт вес: без счётчика сайт работает целиком, он ничего не рисует и
+          // ничего не грузит для человека. Но IP посетителя он получает — тот самый IP,
+          // который приложение намеренно не читает. Разбор и выключатель —
+          // `lib/metrika.ts`, следствие для человека — на `/dannye`.
           {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "img-src 'self' data: blob:",
+              // Метрика умеет досылать данные пикселем, когда fetch недоступен.
+              `img-src 'self' data: blob: ${METRIKA_HOST}`,
               "worker-src 'self' blob:",
               scriptSrc,
               "style-src 'self' 'unsafe-inline'",
-              "connect-src 'self'",
+              `connect-src 'self' ${METRIKA_HOST}`,
               "font-src 'self'",
               "frame-ancestors 'none'",
               "base-uri 'self'",

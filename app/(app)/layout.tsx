@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import Metrika from "@/components/Metrika";
 import SiteToolbar from "@/components/SiteToolbar";
 import { resolveSite } from "@/lib/sites";
 import "./globals.css";
@@ -50,6 +51,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </a>
         <SiteToolbar />
         {children}
+        {/* Счётчик — последним в body и только в проде: `lib/metrika.ts`. */}
+        <Metrika />
       </body>
     </html>
   );
