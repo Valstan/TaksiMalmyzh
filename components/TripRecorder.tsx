@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import ShareTripPanel from "@/components/ShareTripPanel";
 import { installId } from "@/lib/install-id";
 import {
@@ -87,13 +86,19 @@ function writeLS(key: string, value: unknown) {
   }
 }
 
-export default function TripRecorder() {
+export default function TripRecorder({ loginHref }: { loginHref: string }) {
   // Компонент грузится только в браузере (ssr: false на странице), поэтому localStorage
   // читается при инициализации состояния, а не эффектом: эффект дал бы лишний рендер и
   // мигание пустого поля, а правило react-hooks/set-state-in-effect право по существу.
   const [phase, setPhase] = useState<Phase>(() => (readLS<Session>(LS_SESSION) ? "paused" : "idle"));
   const [error, setError] = useState<string | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
+  /**
+   * Старт идёт — кнопка заблокирована. Без этого двойное нажатие на медленной сети
+   * создаёт ДВЕ поездки: вторая становится текущей, первая осиротевает и закрывается
+   * серверным автозакрытием только через шесть часов, всё это время числясь активной.
+   */
+  const [starting, setStarting] = useState(false);
   const [recorded, setRecorded] = useState(0);
   const [queued, setQueued] = useState(() => readLS<Queued[]>(LS_QUEUE)?.length ?? 0);
   /** Сколько напоминаний «вы ещё пишете?» уже показано без ответа. */
@@ -234,7 +239,16 @@ export default function TripRecorder() {
     if (watchId.current !== null) return;
     watchId.current = navigator.geolocation.watchPosition(
       onFix,
-      (e) => setError(`геолокация: ${e.message}`),
+      (e) =>
+        // Отказ в разрешении — не «ошибка геолокации», а тупик: поездка уже создана на
+        // сервере, а точек в ней не будет ни одной. Промпт всплывает ПОСЛЕ сетевого
+        // запроса (разрешение просится не в жесте, а в watchPosition), поэтому такое
+        // состояние достижимо обычным нажатием «Не разрешать».
+        setError(
+          e.code === e.PERMISSION_DENIED
+            ? "доступ к местоположению не разрешён — точек не будет; завершите поездку, разрешите доступ в настройках браузера и начните заново"
+            : `геолокация: ${e.message}`,
+        ),
       // enableHighAccuracy — единственный режим, в котором трасса вообще имеет смысл;
       // он же самый расходный по батарее, и это признано в M0.A §2.5.
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
@@ -254,7 +268,10 @@ export default function TripRecorder() {
       // главная хрупкость foreground-записи (M0.A §2.5).
       wakeLock.current = await navigator.wakeLock?.request("screen") ?? null;
     } catch {
-      setError("экран может погаснуть — запись прервётся");
+      // Не «ошибка записи»: часть браузеров отдаёт Wake Lock только внутри жеста человека,
+      // а мы просим его уже после сетевого запроса. Запись при этом идёт — рвётся она не
+      // от отказа в блокировке, а от погасшего экрана, и сказать надо ровно это.
+      setError("экран может погаснуть сам — тогда запись прервётся; держите его включённым");
     }
   }, []);
 
@@ -274,8 +291,10 @@ export default function TripRecorder() {
   }, [flush, stopWatch]);
 
   async function start() {
+    if (starting) return;
     setError(null);
     setNeedLogin(false);
+    setStarting(true);
     try {
       const r = await api({ action: "start", installId: installId() });
       session.current = {
@@ -311,6 +330,8 @@ export default function TripRecorder() {
             : "не удалось начать поездку",
         );
       }
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -414,11 +435,15 @@ export default function TripRecorder() {
     <section className="rec">
       {phase === "idle" && (
         <>
-          <button className="rec-btn" onClick={() => void start()}>Начать поездку</button>
+          <button className="rec-btn" onClick={() => void start()} disabled={starting}>
+            {starting ? "Начинаю…" : "Начать поездку"}
+          </button>
           {needLogin && (
             <p className="rec-error">
-              Нужно войти в приложение — <Link href="/admin">открыть вход</Link>. Вводить ничего
-              больше не потребуется: право записи даёт сам вход.
+              Сессия кончилась, пока страница была открыта —{" "}
+              {/* Роут отвечает редиректом на чужой хост: нужна полная навигация, не <Link>. */}
+              <a href={loginHref} rel="nofollow">войдите заново</a>. Вводить ничего не
+              потребуется: право записи даёт сам вход.
             </p>
           )}
           <p className="page-sub">
@@ -464,6 +489,18 @@ export default function TripRecorder() {
             {queued > 0 && <> · ждут отправки: <b>{queued}</b></>}
             {accuracyM !== null && <> · точность ≈ {accuracyM} м</>}
           </p>
+          {/* ⚠️ Прерванная запись переживает закрытие вкладки: она лежит в localStorage и
+              поднимается инициализатором состояния. Поэтому человек, зашедший «начать
+              поездку», видит здесь не кнопку старта, а незакрытый прошлый заход — и без
+              этой строчки это неотличимо от «кнопка пропала». Новая поездка начинается
+              только после того, как прошлая закрыта: двух активных быть не может. */}
+          {phase === "paused" && (
+            <p className="page-sub">
+              Это <b>прошлая незакрытая</b> поездка — она прервалась, когда страница ушла в
+              фон или закрылась. Пока она не закончена, новую начать нельзя: продолжите её
+              или завершите, и кнопка «Начать поездку» вернётся.
+            </p>
+          )}
           <div className="rec-row">
             {phase === "paused" && <button className="rec-btn" onClick={() => void resume()}>Продолжить</button>}
             <button className="rec-btn rec-stop" onClick={() => void finish("user")}>Завершить поездку</button>
