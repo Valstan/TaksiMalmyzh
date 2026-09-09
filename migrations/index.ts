@@ -10,6 +10,7 @@ import * as migration_20260903_140000_chat from './20260903_140000_chat';
 import * as migration_20260903_160000_business from './20260903_160000_business';
 import * as migration_20260903_180000_ratings from './20260903_180000_ratings';
 import * as migration_20260903_200000_last_login from './20260903_200000_last_login';
+import * as migration_20260910_120000_karma from './20260910_120000_karma';
 
 export const migrations = [
   {
@@ -71,5 +72,10 @@ export const migrations = [
     up: migration_20260903_200000_last_login.up,
     down: migration_20260903_200000_last_login.down,
     name: '20260903_200000_last_login'
+  },
+  {
+    up: migration_20260910_120000_karma.up,
+    down: migration_20260910_120000_karma.down,
+    name: '20260910_120000_karma'
   },
 ];

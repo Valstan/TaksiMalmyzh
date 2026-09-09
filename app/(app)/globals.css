@@ -1007,3 +1007,72 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Карма ± (решение владельца 2026-09-10): у организации и у каждого номера.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.karma {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.karma-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.karma-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  /* Цель тапа: пальцем в списке номеров промахиваться нельзя — рядом ссылка «позвонить». */
+  min-width: 2.5rem;
+  min-height: 2rem;
+  justify-content: center;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.karma-btn:hover,
+.karma-btn:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Свой поставленный голос виден заливкой, а не только цветом цифры: цвет один и тот же
+   у «плюса» и «минуса», и различать их только оттенком нельзя. */
+.karma-btn.karma-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.karma-n {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Номер и его карма — одна строка, чтобы было видно, к чему относится оценка. */
+.dir-phone-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.dir-phones {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}

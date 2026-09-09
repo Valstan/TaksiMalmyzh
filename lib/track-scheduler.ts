@@ -2,6 +2,7 @@ import { trackPool } from "./track-db.ts";
 import { partitionRunwayDays, runMaintenance } from "./track-maintenance.ts";
 import { escalateTrips } from "./track-share.ts";
 import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
+import { karmaReady, pruneKarma } from "./karma.ts";
 import { pruneChat } from "./track-chat.ts";
 import { expireStaleClaims, marketReady, pruneRequests } from "./market.ts";
 import { pruneRatings, ratingsReady } from "./ratings.ts";
@@ -104,6 +105,12 @@ async function tick(log: Logger): Promise<void> {
     if (await crowdReady(trackPool())) {
       const pruned = await pruneCrowdSignals(trackPool());
       if (pruned) log.info(`краудсигналы: удалено по сроку ${pruned}`);
+    }
+    // Карма (решение владельца 2026-09-10): голоса старше года — вон. Свой гейт
+    // готовности, как у соседей: не подтверждена схема — прогон пропускается целиком.
+    if (await karmaReady(trackPool())) {
+      const kp = await pruneKarma(trackPool());
+      if (kp) log.info(`карма: удалено по сроку ${kp}`);
     }
     // Аккаунты посетителей (решение владельца 2026-09-03): 12 месяцев без входа — удаление.
     // Гейт готовности снаружи, как у вызовов, рейтингов и краудсигналов: не подтверждена

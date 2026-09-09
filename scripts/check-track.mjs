@@ -404,6 +404,67 @@ try {
       ok("схема crowd снесена");
     }
 
+    // --- карма справочника: один голос на устройство, повтор отзывает
+    //
+    // ⚠️ Схему crowd поднимаем СВОИМ вызовом CROWD_DDL_UP, а не надеемся на предыдущий
+    // раздел: тот заканчивается `DROP SCHEMA crowd CASCADE`, а KARMA_DDL_UP начинается
+    // сразу с `CREATE TABLE crowd.karma` и без схемы упал бы. Тот же порядок, что у
+    // рейтингов относительно market.
+    {
+      const { CROWD_DDL_UP, CROWD_DDL_DOWN, KARMA_DDL_UP } = await import("../lib/crowd-ddl.ts");
+      const karma = await import("../lib/karma.ts");
+      const { phoneKey } = await import("../lib/phone-key.ts");
+      await pool.query(CROWD_DDL_DOWN);
+      await pool.query(CROWD_DDL_UP);
+      await pool.query(KARMA_DDL_UP);
+
+      const dev = "device-K-0123456789abcdef";
+      const other = "device-L-0123456789abcdef";
+
+      eq(phoneKey("+7 912 000-00-00"), "+79120000000", "ключ номера: международный формат");
+      eq(phoneKey("89120000000"), "+79120000000", "ключ номера: восьмёрка даёт тот же ключ");
+      eq(phoneKey("8 (83347) 2-22-22"), "+78334722222", "ключ номера: городской со скобками");
+      eq(phoneKey("2-22-22"), "22222", "ключ номера: короткий местный не достраивается");
+      eq(phoneKey("по договору"), "", "ключ номера: не номер — пустой ключ");
+      eq(phoneKey(phoneKey("+7 912 000-00-00")), "+79120000000", "нормализация идемпотентна");
+
+      eq(await karma.vote(1, "", dev, 1, pool), "set", "голос за организацию поставлен");
+      eq(await karma.vote(1, "", other, 1, pool), "set", "второе устройство добавило свой");
+      // eq сравнивает через ===, поэтому счётчики сводятся к строке karmaLine — той же,
+      // что видит человек на карточке. Заодно это проверяет и саму подпись.
+      eq(karma.karmaLine((await karma.karmaStats([1], pool)).get(1)?.org), "+2 −0", "сумма по организации");
+
+      eq(await karma.vote(1, "", dev, 1, pool), "cleared", "повтор той же кнопки отзывает голос");
+      eq(karma.karmaLine((await karma.karmaStats([1], pool)).get(1)?.org), "+1 −0", "после отзыва остался один");
+
+      eq(await karma.vote(1, "", other, -1, pool), "set", "смена знака");
+      eq(karma.karmaLine((await karma.karmaStats([1], pool)).get(1)?.org), "+0 −1",
+        "смена знака не добавляет второй голос, а двигает тот же");
+
+      // Тот же номер, записанный двумя способами, — один ключ и одна карма.
+      await karma.vote(1, "89120000000", dev, 1, pool);
+      await karma.vote(1, "+7 912 000-00-00", other, 1, pool);
+      eq(karma.karmaLine((await karma.karmaStats([1], pool)).get(1)?.phones.get("+79120000000")), "+2 −0",
+        "переформатированный номер не расщепляет карму");
+
+      // Один номер в двух карточках — две независимые кармы.
+      await karma.vote(2, "89120000000", dev, -1, pool);
+      eq(karma.karmaLine((await karma.karmaStats([1], pool)).get(1)?.phones.get("+79120000000")), "+2 −0",
+        "карма номера не течёт между организациями");
+
+      eq(await karma.vote(1, "по договору", dev, 1, pool), "bad_target",
+        "поле без цифр не сливается с часовым организации");
+
+      const stale = new Date(Date.now() - (karma.KARMA_RETENTION_DAYS + 1) * 86_400_000);
+      await pool.query(`UPDATE crowd.karma SET at = $1 WHERE entry_id = 2`, [stale]);
+      eq(await karma.pruneKarma(pool), 1, "голос старше года удалён регламентом");
+
+      eq(await karma.karmaReady(pool), true, "готовность схемы кармы видна");
+      await pool.query(CROWD_DDL_DOWN);
+      eq(await karma.karmaReady(pool), false, "и пропадает вместе со схемой");
+      ok("карма проверена");
+    }
+
     // вернуть поездку в исходное для дальнейших проверок регламента
     await pool.query(`UPDATE track.trip SET alarm_at = NULL, disclosed_at = NULL, all_ok_at = NULL, last_point_at = NULL WHERE id = $1`, [trip.id]);
     await pool.query(`DELETE FROM track.share WHERE trip_id = $1`, [trip.id]);
@@ -827,7 +888,11 @@ try {
     await pool.query(ddl.RATINGS_DDL_UP).catch(() => {});
   }
   const crowdDdl = await import("../lib/crowd-ddl.ts").catch(() => null);
-  if (crowdDdl) await pool.query(crowdDdl.CROWD_DDL_UP).catch(() => {});
+  if (crowdDdl) {
+    await pool.query(crowdDdl.CROWD_DDL_UP).catch(() => {});
+    // Строго ПОСЛЕ схемы: KARMA_DDL_UP её не создаёт (см. раздел кармы выше).
+    await pool.query(crowdDdl.KARMA_DDL_UP).catch(() => {});
+  }
   await pool.end();
   console.log("схемы track, market и crowd очищены и пересозданы пустыми");
 }

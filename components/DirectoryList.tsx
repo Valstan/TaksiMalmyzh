@@ -7,7 +7,10 @@ import { statsLine, type EntryStats } from "@/lib/crowd-signals";
 import CallPhones from "@/components/CallPhones";
 import EntryActions from "@/components/EntryActions";
 import RateWidget from "@/components/RateWidget";
+import KarmaVote from "@/components/KarmaVote";
 import { ratingLine, type RatingStats } from "@/lib/ratings";
+import { ORG_KEY } from "@/lib/phone-key";
+import type { EntryKarma, KarmaCount } from "@/lib/karma";
 
 export type Viewer = { id: number; role: string } | null;
 
@@ -17,8 +20,11 @@ export type Viewer = { id: number; role: string } | null;
 // с первым при первой же правке (класс #087).
 
 function EntryCard({
-  entry, stats, viewer, claimed, rating,
-}: { entry: Entry; stats?: EntryStats; viewer: Viewer; claimed: number | null; rating?: RatingStats }) {
+  entry, stats, viewer, claimed, rating, karma,
+}: {
+  entry: Entry; stats?: EntryStats; viewer: Viewer; claimed: number | null;
+  rating?: RatingStats; karma?: EntryKarma;
+}) {
   const line = statsLine(stats);
   const stars = ratingLine(rating);
   const ownerId = typeof entry.owner === "object" && entry.owner ? entry.owner.id : entry.owner;
@@ -29,8 +35,14 @@ function EntryCard({
         {stars && <span className="dir-rating"> {stars}</span>}
       </div>
       {entry.hours && <div className="dir-hours">{entry.hours}</div>}
-      {/* Телефоны — клиентский компонент: после звонка спрашивает «дозвонились?» (спринт 5). */}
-      <CallPhones entryId={entry.id} phones={entry.phones ?? []} />
+      {/* Телефоны — клиентский компонент: после звонка спрашивает «дозвонились?» (спринт 5),
+          и у каждого номера своя карма (решение владельца 2026-09-10). Map разворачивается
+          в обычный объект: границу сервер→клиент так переезжать дешевле. */}
+      <CallPhones
+        entryId={entry.id}
+        phones={entry.phones ?? []}
+        karma={karma ? Object.fromEntries(karma.phones) : undefined}
+      />
       {line && <p className="dir-stats">{line}</p>}
       {entry.prices && entry.prices.length > 0 && (
         <ul className="dir-prices">
@@ -50,6 +62,12 @@ function EntryCard({
           ))}
         </p>
       )}
+      {/* Две шкалы на одной карточке — поэтому у обеих подписи. Карма (±) отвечает на
+          вопрос «стоит ли звонить», её ставят все и всем; звёзды (1–5) — «как возят», и
+          они остаются только у карточек с кабинетом, потому что оценку получает тот, кому
+          есть чем ответить (docs/RATINGS.md). Без подписей человек не понимает, что у него
+          спрашивают дважды. */}
+      <KarmaVote entryId={entry.id} count={karma?.org} label="Вся служба:" />
       {ownerId && <RateWidget entryId={entry.id} workers={rating?.workers ?? []} />}
       <EntryActions entryId={entry.id} hasOwner={Boolean(ownerId)} viewer={viewer} claimed={claimed} />
     </li>
@@ -70,6 +88,7 @@ export default function DirectoryList({
   viewer,
   claims,
   ratings,
+  karma,
 }: {
   entries: Entry[];
   showHeadings?: boolean;
@@ -81,6 +100,8 @@ export default function DirectoryList({
   claims?: Map<number, number>;
   /** Рейтинги (спринт 9) по id записи. */
   ratings?: Map<number, RatingStats>;
+  /** Карма (решение владельца 2026-09-10) по id записи. */
+  karma?: Map<number, EntryKarma>;
 }) {
   const byCategory = new Map<EntryCategory, Entry[]>();
   for (const entry of entries) {
@@ -106,6 +127,7 @@ export default function DirectoryList({
                   viewer={viewer ?? null}
                   claimed={claims?.get(entry.id) ?? null}
                   rating={ratings?.get(entry.id)}
+                  karma={karma?.get(entry.id)}
                 />
               ))}
             </ul>

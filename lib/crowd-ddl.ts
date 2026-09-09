@@ -32,3 +32,45 @@ CREATE INDEX signal_entry_day_idx ON crowd.signal (entry_id, day DESC);
 `;
 
 export const CROWD_DDL_DOWN = `DROP SCHEMA IF EXISTS crowd CASCADE;`;
+
+// Карма справочника — решение владельца 2026-09-10. Плюс-минус у организации и у каждого
+// её номера, голосуют без авторизации.
+//
+// Отдельным экспортом, не внутрь CROWD_DDL_UP: тот текст уже применён миграцией
+// 20260903_120000 и меняться не имеет права. Тот же приём, что RATINGS_DDL_UP рядом с
+// MARKET_DDL_UP в lib/market-ddl.ts.
+//
+// Почему в схеме `crowd`, а не `market`: карма положена ЛЮБОЙ опубликованной карточке, в
+// том числе без кабинета, и адресует бизнес, а не человека, — это семья crowd.signal
+// (анонимно, псевдоним устройства, анти-накрутка первичным ключом). market.rating живёт по
+// другому правилу: только карточкам с владельцем, потому что звёзды получает тот, кому
+// есть чем ответить.
+//
+// Цель голоса — пара (entry_id, phone_key). phone_key = '' — организация целиком (часовой
+// по образцу worker_id = 0 у рейтингов). Иначе — нормализованный номер, lib/phone-key.ts;
+// там же разобрано, почему не id строки массива телефонов.
+//
+// ⚠️ ДНЯ В КЛЮЧЕ НЕТ — в отличие от crowd.signal и market.rating, и это не забывчивость.
+// Карма СУММИРУЕТСЯ, а звёзды усредняются: день в ключе дал бы одному устройству +1 каждые
+// сутки, то есть +30 с одного телефона за месяц. Голос живёт, пока его не поменяли
+// (UPDATE) или не отозвали (DELETE), и весит ровно единицу.
+//
+// Отдельного индекса по (entry_id, phone_key) нет намеренно: это префикс первичного ключа,
+// и агрегат обслуживается им же. У crowd.signal собственный индекс нужен — там
+// (entry_id, day) префиксом ключа не является.
+
+export const KARMA_DDL_UP = `
+CREATE TABLE crowd.karma (
+  entry_id   integer     NOT NULL,
+  -- '' — организация целиком; иначе нормализованный номер (lib/phone-key.ts)
+  phone_key  text        NOT NULL CHECK (length(phone_key) <= 32),
+  device_ref bytea       NOT NULL,
+  vote       smallint    NOT NULL CHECK (vote IN (-1, 1)),
+  at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (entry_id, phone_key, device_ref)
+);
+-- Для уборки по сроку: часовой тик удаляет голоса старше года от последнего изменения.
+CREATE INDEX karma_at_idx ON crowd.karma (at);
+`;
+
+export const KARMA_DDL_DOWN = `DROP TABLE IF EXISTS crowd.karma;`;

@@ -18,6 +18,7 @@ import { crowdReady, entryStats } from "@/lib/crowd-signals";
 import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
 import { ratingsReady, ratingStats } from "@/lib/ratings";
+import { karmaReady, karmaStats } from "@/lib/karma";
 
 // Главная зависит от домена (матрёшка, `lib/sites.ts`) и ходит в базу — пререндерить
 // нельзя ни то, ни другое.
@@ -59,6 +60,9 @@ export default async function Home() {
   const viewer = entries.length ? await currentUser() : null;
   const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
   const ratings = entries.length && (await ratingsReady()) ? await ratingStats(entries.map((e) => e.id)) : undefined;
+  // Карма — свой гейт готовности, как у сигналов и рейтингов: страница не должна зависеть
+  // от того, доехала ли миграция.
+  const karma = entries.length && (await karmaReady()) ? await karmaStats(entries.map((e) => e.id)) : undefined;
 
   return (
     <main className="page" id="main" tabIndex={-1}>
@@ -79,7 +83,15 @@ export default async function Home() {
       {categories && (
         <>
           {entries.length > 0 ? (
-            <DirectoryList entries={entries} showHeadings={categories.length > 1} stats={stats} viewer={viewer} claims={claims} ratings={ratings} />
+            <DirectoryList
+              entries={entries}
+              showHeadings={categories.length > 1}
+              stats={stats}
+              viewer={viewer}
+              claims={claims}
+              ratings={ratings}
+              karma={karma}
+            />
           ) : (
             <p className="page-sub">
               Номера появляются в справочнике после проверки. Пока пусто —{" "}

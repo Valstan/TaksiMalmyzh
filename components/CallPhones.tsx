@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import KarmaVote from "@/components/KarmaVote";
 import { installId } from "@/lib/install-id";
+import { phoneKey } from "@/lib/phone-key";
+import type { KarmaCount } from "@/lib/karma";
 
 // Телефоны карточки с вопросом «дозвонились?» после звонка (спринт 5).
 //
@@ -21,7 +24,19 @@ function telHref(raw: string): string {
 
 type Stage = "idle" | "calling" | "ask" | "thanks";
 
-export default function CallPhones({ entryId, phones }: { entryId: number; phones: Phone[] }) {
+export default function CallPhones({
+  entryId,
+  phones,
+  karma,
+}: {
+  entryId: number;
+  phones: Phone[];
+  /**
+   * Карма по номерам этой карточки, ключ — нормализованный номер (`lib/phone-key.ts`).
+   * Обычный объект, а не Map: так проще и дешевле переехать через границу сервер→клиент.
+   */
+  karma?: Record<string, KarmaCount>;
+}) {
   const [stage, setStage] = useState<Stage>("idle");
   const [price, setPrice] = useState(false);
   const calledAt = useRef<number | null>(null);
@@ -61,12 +76,24 @@ export default function CallPhones({ entryId, phones }: { entryId: number; phone
 
   return (
     <>
+      {/* Каждый номер — своя строка: телефон и его карма. Карма именно у номера, а не
+          только у организации, — решение владельца: у одной службы бывает несколько
+          номеров, и «этот не берут, а по этому отвечают» это разные факты. */}
       <div className="dir-phones">
-        {phones.map((p) => (
-          <a key={p.id ?? p.number} className="dir-phone" href={telHref(p.number)} onClick={onCall}>
-            {p.number}
-          </a>
-        ))}
+        {phones.map((p) => {
+          const key = phoneKey(p.number);
+          return (
+            <span key={p.id ?? p.number} className="dir-phone-row">
+              <a className="dir-phone" href={telHref(p.number)} onClick={onCall}>
+                {p.number}
+              </a>
+              {/* Поле без цифр («по договору») номером не является: голосовать не за что. */}
+              {key !== "" && (
+                <KarmaVote entryId={entryId} phone={p.number} count={karma?.[key]} />
+              )}
+            </span>
+          );
+        })}
       </div>
 
       {stage === "ask" && (
