@@ -96,6 +96,55 @@ export async function entryStats(
   return out;
 }
 
+export type EntryReach = { devices: number; answered: number; noAnswer: number };
+
+/**
+ * Охват записи за окно: сколько РАЗНЫХ устройств, а не сколько строк.
+ *
+ * Отличие от `entryStats` существенное и не косметическое. Строка уникальна по
+ * `(entry_id, device_ref, day)`, поэтому одно устройство, звонящее месяц подряд, даёт
+ * тридцать строк и одно устройство. Для карточки верны строки («12 звонков за месяц»); для
+ * ВИТРИНЫ верны устройства — это та величина, которую нельзя накрутить, не собрав тридцать
+ * разных телефонов.
+ *
+ * ⚠️ `answered` считается отдельно и именно он решает место в витрине. Причина —
+ * замкнутый круг, который иначе получается: витрина показывает номер, тап по нему пишет
+ * строку в `crowd.signal`, строка поднимает счётчик, счётчик держит номер в витрине. Так
+ * список стал бы самоподдерживающимся и владельцу нечем было бы ответить бизнесу,
+ * спросившему «почему не я». Строка с `outcome = 0` создаётся САМИМ нажатием, а
+ * `outcome = 1` ставит человек рукой, ответив «Да» на вопрос «дозвонились?». Круг
+ * разрывается там, где нужен второй, осознанный жест.
+ */
+export async function entryReach(
+  entryIds: number[],
+  now = new Date(),
+  pool: Pool = trackPool(),
+): Promise<Map<number, EntryReach>> {
+  const out = new Map<number, EntryReach>();
+  if (entryIds.length === 0) return out;
+  const since = new Date(now.getTime() - WINDOW_DAYS * 86_400_000);
+  const { rows } = await pool.query<{
+    entry_id: number; devices: string; answered: string; no_answer: string;
+  }>(
+    `SELECT entry_id,
+            count(DISTINCT device_ref)::text                                AS devices,
+            count(DISTINCT device_ref) FILTER (WHERE outcome = 1)::text     AS answered,
+            count(DISTINCT device_ref) FILTER (WHERE outcome = 2)::text     AS no_answer
+       FROM crowd.signal
+      WHERE entry_id = ANY($1) AND day >= $2
+      GROUP BY entry_id`,
+    [entryIds, utcDay(since)],
+  );
+  for (const r of rows) {
+    out.set(r.entry_id, {
+      devices: Number(r.devices),
+      answered: Number(r.answered),
+      noAnswer: Number(r.no_answer),
+    });
+  }
+  return out;
+}
+
 /** Регламент: строки старше срока удаляются. Возвращает число удалённых. */
 export async function pruneCrowdSignals(pool: Pool, now = new Date()): Promise<number> {
   const before = new Date(now.getTime() - RETENTION_DAYS * 86_400_000);
