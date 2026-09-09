@@ -9,10 +9,11 @@ import DirectoryList from "@/components/DirectoryList";
 import {
   ROOT_SITE,
   WHOLE_SERVICE_FALLBACK,
+  resolveScope,
   resolveSite,
-  siteCategories,
   siteHref,
 } from "@/lib/sites";
+import { CATEGORY_LABELS, shelves } from "@/lib/shelves";
 import { crowdReady, entryStats } from "@/lib/crowd-signals";
 import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
@@ -37,11 +38,28 @@ export default async function NomeraPage({
 }) {
   const site = resolveSite((await headers()).get("host"));
 
-  // `?scope=all` — дверь из категорийного домена во весь справочник. Нужна,
-  // пока `позвони.вмалмыже.рф` не заведён (`components/SiteHeader.tsx`), и
-  // остаётся полезной после: «покажи всё» без ухода с домена.
-  const showAll = (await searchParams).scope === "all";
-  const categories = showAll ? null : siteCategories(site);
+  // `?scope=` — общий адрес полки: сюда ведут плашки витрины, и он же остаётся дверью
+  // «покажи всё» (`scope=all`, `WHOLE_SERVICE_FALLBACK`). Разбор значений и поведение при
+  // мусоре в адресе — `resolveScope` в `lib/sites.ts`.
+  const scope = (await searchParams).scope;
+  const categories = resolveScope(site, scope);
+  const showAll = categories === null;
+
+  // Заголовки категорий над секциями нужны, только когда категорий больше одной: над
+  // единственной полкой «Магазины» заголовок «Магазины» не сообщает ничего сверх того,
+  // что уже сказано строкой состояния.
+  const showHeadings = categories === null || categories.length > 1;
+
+  // Полка, выбранная скоупом, — она же категория по умолчанию в форме предложения. Без
+  // этого человек, пришедший с пустой плашки «Магазины», предложил бы магазин в такси:
+  // форма всегда открывалась на «Такси».
+  const shelfHere = scope ? shelves().find((s) => s.key === scope.trim().toLowerCase()) : undefined;
+  const defaultCategory =
+    shelfHere?.categories.length === 1
+      ? shelfHere.categories[0]
+      : categories?.length === 1
+        ? categories[0]
+        : undefined;
 
   const payload = await getPayload({ config });
   // Access-правило коллекции само отдаёт анониму только опубликованное;
@@ -74,6 +92,9 @@ export default async function NomeraPage({
       </PageHead>
 
       <p className="page-sub">
+        {categories === null
+          ? "Весь справочник Малмыжа. "
+          : `Полка: ${categories.map((c) => CATEGORY_LABELS[c]).join(", ")}. `}
         Нажмите на номер — телефон наберёт сам. Цены справочные, не оферта: уточняйте
         при звонке.
       </p>
@@ -84,9 +105,16 @@ export default async function NomeraPage({
         </p>
       )}
 
-      <DirectoryList entries={docs} stats={stats} viewer={viewer} claims={claims} ratings={ratings} />
+      <DirectoryList
+        entries={docs}
+        showHeadings={showHeadings}
+        stats={stats}
+        viewer={viewer}
+        claims={claims}
+        ratings={ratings}
+      />
 
-      <SuggestForm />
+      <SuggestForm defaultCategory={defaultCategory} />
 
       <footer className="page-footer">
         <p>

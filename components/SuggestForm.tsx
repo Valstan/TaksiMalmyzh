@@ -4,7 +4,16 @@ import { useState } from "react";
 
 // Форма «предложить номер». Предложение уходит черновиком и публикуется только
 // после проверки супер-админом — форма честно говорит об этом человеку.
-export default function SuggestForm() {
+export default function SuggestForm({
+  defaultCategory = "taxi",
+}: {
+  /**
+   * Какая категория выбрана заранее. Приходит из полки, с которой человек пришёл: с
+   * пустой плашки «Магазины» он попадает прямо сюда по якорю, и форма, открытая на
+   * «Такси», отправила бы магазин в такси.
+   */
+  defaultCategory?: string;
+}) {
   const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
 
@@ -34,7 +43,8 @@ export default function SuggestForm() {
   }
 
   return (
-    <section className="suggest">
+    // Якорь: на него ведут пустые плашки витрины («Собираем — добавьте первый номер»).
+    <section className="suggest" id="predlozhit">
       <h2>Предложить номер</h2>
       <p className="page-sub">
         Знаете службу, которой здесь нет? Добавьте — номер появится после проверки.
@@ -55,7 +65,7 @@ export default function SuggestForm() {
           </label>
           <label>
             Категория
-            <select name="category" defaultValue="taxi">
+            <select name="category" defaultValue={defaultCategory}>
               <option value="taxi">Такси</option>
               <option value="shop">Магазины</option>
               <option value="master">Мастера и ремонт</option>

@@ -1,5 +1,8 @@
 import type { Entry } from "@/payload-types";
 import type { EntryCategory } from "@/lib/sites";
+// Подписи и порядок категорий живут в модели полок: их читает и витрина плашек, и этот
+// список, и второй экземпляр разъехался бы с первым при первой же правке (класс #087).
+import { CATEGORY_LABELS, CATEGORY_ORDER } from "@/lib/shelves";
 import { statsLine, type EntryStats } from "@/lib/crowd-signals";
 import CallPhones from "@/components/CallPhones";
 import EntryActions from "@/components/EntryActions";
@@ -12,18 +15,6 @@ export type Viewer = { id: number; role: string } | null;
 // категорийного домена. Вынесено сюда не ради красоты: на такси-домене список
 // номеров — это и есть главная, и второй экземпляр той же разметки разошёлся бы
 // с первым при первой же правке (класс #087).
-
-export const CATEGORY_LABELS: Record<EntryCategory, string> = {
-  taxi: "Такси",
-  shop: "Магазины",
-  master: "Мастера и ремонт",
-  brigade: "Бригады и работы",
-  cargo: "Доставка и грузы",
-  other: "Другое",
-};
-
-/** Порядок полок на странице. Он же — порядок ключей объекта выше. */
-export const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS) as EntryCategory[];
 
 function EntryCard({
   entry, stats, viewer, claimed, rating,
