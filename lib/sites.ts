@@ -21,8 +21,21 @@
 // ссылка на несуществующий поддомен — это ошибка у пользователя в браузере,
 // а не «пока не доехало».
 
-/** Категории справочника — значения совпадают с `collections/Entries.ts`. */
-export type EntryCategory = "taxi" | "shop" | "master" | "brigade" | "cargo" | "other";
+/**
+ * Категории справочника — значения совпадают с `collections/Entries.ts`.
+ *
+ * Порядок массива — единственный источник порядка полок во всём продукте: его читают и
+ * витрина плашек, и разбиение справочника на секции. Второй копии списка в проекте быть
+ * не должно (класс #087).
+ *
+ * ⚠️ Синхронность с коллекцией держит не этот файл, а `npm run typecheck`: добавят
+ * седьмую категорию в `collections/Entries.ts`, перегенерируют `payload-types.ts` — и
+ * union там станет шире, чем `EntryCategory`, на чём сборка типов и упадёт. Ассерт
+ * времени импорта такого не поймал бы: он видит только этот файл.
+ */
+export const CATEGORIES = ["taxi", "shop", "master", "brigade", "cargo", "other"] as const;
+
+export type EntryCategory = (typeof CATEGORIES)[number];
 
 /**
  * Уровень матрёшки. `service` — весь «ПОЗВОНИ»; `category` — одна или несколько
@@ -261,4 +274,35 @@ export function siteHref(from: Site, to: Site, path: string, fallback: string): 
 /** Категории, которые показывает домен. Для корня — все. */
 export function siteCategories(site: Site): EntryCategory[] | null {
   return site.kind === "category" ? (site.categories ?? null) : null;
+}
+
+/**
+ * Какие категории показывать в справочнике при данном домене и параметре `?scope=`.
+ * `null` — все.
+ *
+ * Параметр раньше знал одно значение `all` (дверь из категорийного домена во весь город,
+ * `WHOLE_SERVICE_FALLBACK`). Теперь это общий адрес полки: на него ведут плашки витрины,
+ * и он же остаётся дверью «покажи всё».
+ *
+ * Принимает: пусто — что показывает домен; `all` — всё; id категорийного сайта
+ * (`taxi`, `uslugi`, `magaziny`) — его категории; голую категорию (`shop`, `master`, …) —
+ * одну. **Что угодно ещё ведёт себя как отсутствие параметра**: мусор в адресе не должен
+ * давать ни 404, ни пустую страницу — человек приходит по ссылке из мессенджера, где
+ * адрес мог обрезаться.
+ */
+export function resolveScope(
+  site: Site,
+  scope: string | null | undefined,
+): EntryCategory[] | null {
+  const key = scope?.trim().toLowerCase();
+  if (!key) return siteCategories(site);
+  if (key === "all") return null;
+
+  const byId = SITES.find((s) => s.id === key && s.kind === "category");
+  if (byId?.categories?.length) return byId.categories;
+
+  const asCategory = CATEGORIES.find((c) => c === key);
+  if (asCategory) return [asCategory];
+
+  return siteCategories(site);
 }

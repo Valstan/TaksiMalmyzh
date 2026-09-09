@@ -5,6 +5,8 @@ import config from "@payload-config";
 import HomeMap from "@/components/HomeMap";
 import PageHead from "@/components/PageHead";
 import DirectoryList from "@/components/DirectoryList";
+import ServiceTiles from "@/components/ServiceTiles";
+import { shelfCounts, shelves } from "@/lib/shelves";
 import {
   ROOT_SITE,
   WHOLE_SERVICE_FALLBACK,
@@ -17,14 +19,22 @@ import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
 import { ratingsReady, ratingStats } from "@/lib/ratings";
 
-// Главная зависит от домена (матрёшка, `lib/sites.ts`) и на категорийных
-// доменах ходит в базу — пререндерить нельзя ни то, ни другое.
+// Главная зависит от домена (матрёшка, `lib/sites.ts`) и ходит в базу — пререндерить
+// нельзя ни то, ни другое.
+//
+// ⚠️ С 2026-09-10 в базу ходит и КОРЕНЬ, чего раньше не было: витрине полок нужны
+// счётчики номеров. Полного списка номеров на корне по-прежнему нет.
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const site = resolveSite((await headers()).get("host"));
   const categories = siteCategories(site);
   const isChild = site.id !== ROOT_SITE.id;
+
+  // Витрина полок города — решение владельца 2026-09-10. Считается на обоих лицах, но
+  // ставится в разные места: см. комментарий у блоков ниже.
+  const shelfList = shelves();
+  const counts = await shelfCounts(shelfList);
 
   // На категорийном домене номера — это и есть продукт: человек пришёл на
   // `такси.вмалмыже.рф` за телефоном такси, а не за картой. Карта остаётся
@@ -61,6 +71,11 @@ export default async function Home() {
         )}
       </PageHead>
 
+      {/* ⚠️ На КОРНЕ витрина стоит сразу под шапкой и заменяет собой список номеров.
+          Работа корня — не показать номера, а ответить «куда мне»: двести карточек над
+          картой похоронили бы и карту, и смысл корня, а до любой полки отсюда один тап. */}
+      {!categories && <ServiceTiles from={site} shelves={shelfList} counts={counts} />}
+
       {categories && (
         <>
           {entries.length > 0 ? (
@@ -76,6 +91,21 @@ export default async function Home() {
             <Link href="/nomera">Весь раздел →</Link>
           </p>
         </>
+      )}
+
+      {/* ⚠️ А на КАТЕГОРИЙНОМ домене витрина стоит ПОСЛЕ номеров. Человек уже вошёл в
+          дверь «такси» — сетка полок над списком вытолкнула бы телефон под сгиб и звала
+          уйти оттуда, куда он только что пришёл. Соседние полки это выход, а выход ставят
+          на выходе. Правило «главная категорийного домена начинается с номеров» записано
+          в docs/DOMAINS.md §5 и этим PR не нарушается. */}
+      {categories && (
+        <ServiceTiles
+          from={site}
+          shelves={shelfList}
+          counts={counts}
+          title="Другие полки Малмыжа"
+          exclude={site.id}
+        />
       )}
 
       <HomeMap />
