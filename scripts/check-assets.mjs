@@ -100,4 +100,38 @@ try {
   fail(`адресный справочник не читается: ${e.message}`);
 }
 
+// --- счётчик Метрики: две копии одной константы обязаны совпадать
+//
+// Хост счётчика записан ДВАЖДЫ: в `lib/metrika.ts` (его читает код страницы) и в
+// `next.config.mjs` (его читает сборщик, обычным node, и `lib/*.ts` ему недоступен — тот
+// же случай, что с DEFAULT_ISSUER). Разъедутся — CSP запретит ровно тот хост, который
+// страница грузит, счётчик умрёт молча, а «визитов нет» неотличимо от «людей нет».
+
+try {
+  const lib = await readFile("lib/metrika.ts", "utf8");
+  const cfg = await readFile("next.config.mjs", "utf8");
+  // Без регулярного выражения намеренно: одна константа, одно место, точное совпадение.
+  const from = (src, name) => {
+    const at = src.indexOf(name + ' = "');
+    if (at === -1) return null;
+    const from0 = at + name.length + 4;
+    const to = src.indexOf('"', from0);
+    return to === -1 ? null : src.slice(from0, to);
+  };
+  const a = from(lib, "METRIKA_HOST");
+  const b = from(cfg, "METRIKA_HOST");
+
+  if (!a || !b) {
+    fail(`METRIKA_HOST не найден: lib/metrika.ts=${a ?? "нет"}, next.config.mjs=${b ?? "нет"}`);
+  } else if (a !== b) {
+    fail(`METRIKA_HOST разъехался: lib/metrika.ts=${a}, next.config.mjs=${b}`);
+  } else if (!cfg.includes("`connect-src 'self' ${METRIKA_HOST}`")) {
+    fail("хост Метрики не попал в connect-src — счётчик не сможет отправить визит");
+  } else {
+    ok(`счётчик Метрики: хост ${a} совпадает в коде и в политике`);
+  }
+} catch (e) {
+  fail(`проверка счётчика не прошла: ${e.message}`);
+}
+
 process.exit(failed ? 1 : 0);
