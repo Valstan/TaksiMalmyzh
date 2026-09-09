@@ -36,7 +36,7 @@ body {
 .page {
   max-width: 60rem;
   margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
+  padding: 1rem 1rem 3rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -301,13 +301,14 @@ body {
 
 /* шапка-навигация */
 
-.top-nav {
+.page-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 0.4rem;
 }
 
-.top-nav a {
+.page-nav a {
   display: inline-block;
   padding: 0.4rem 0.85rem;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -315,10 +316,6 @@ body {
   color: inherit;
   text-decoration: none;
   font-weight: 600;
-}
-
-.top-nav {
-  flex-wrap: wrap;
 }
 
 /* рейтинги (спринт 9) */
@@ -610,51 +607,6 @@ body {
 
 /* вход через единый вход экосистемы: кнопка или «имя · выйти» */
 
-.top-nav .who {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.85rem;
-  border-radius: 0.4rem;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  font-weight: 600;
-}
-
-.top-nav .who form {
-  display: inline;
-}
-
-.top-nav .who button {
-  border: 0;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-weight: 400;
-  color: var(--muted);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-/* хлебные крошки матрёшки: «ПОЗВОНИ › ТАКСИ МАЛМЫЖ» */
-
-.site-crumbs {
-  margin: 0 0 0.35rem;
-  font-size: 0.8rem;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.site-crumbs a {
-  color: inherit;
-  text-decoration: none;
-  border-bottom: 1px solid currentColor;
-}
-
-.site-crumbs a:hover,
-.site-crumbs a:focus-visible {
-  color: var(--accent);
-}
-
 /* запись поездки (этап A) */
 
 .rec {
@@ -732,4 +684,249 @@ body {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Тулбар — общая шапка всех страниц (решение владельца 2026-09-10).
+   Вордмарк слева, плашки сервисов, кнопка профиля справа.
+
+   ⚠️ Два запрета, без которых ломается закрытие меню тапом мимо:
+   на `.toolbar` нельзя ставить transform/filter/backdrop-filter (иначе
+   `position: fixed` у подложки схлопнется до размеров бара) и нельзя ставить
+   overflow (обрежет панель меню). Прокрутка живёт только на `.tb-services`.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20; /* выше выпадашки поиска (10) и контролов карты */
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  padding: 0.5rem 1rem;
+  /* --bg, а не --panel: в PWA-режиме бар должен совпасть с themeColor окна */
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.tb-brand {
+  grid-row: 1;
+  grid-column: 1;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tb-services {
+  grid-row: 1;
+  grid-column: 2;
+  display: flex;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.tb-chip {
+  display: inline-block;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tb-chip.is-current {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.tb-chip-ext {
+  background: none;
+  border: 1px solid var(--line);
+  font-weight: 400;
+}
+
+.tb-right,
+.tb-menu {
+  grid-row: 1;
+  grid-column: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tb-menu {
+  position: relative;
+}
+
+.tb-data {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.tb-profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none; /* убрать нативный треугольник <summary> */
+}
+
+.tb-profile::-webkit-details-marker {
+  display: none;
+}
+
+/* Заглушка на время загрузки сессии: место занято, но ничего не утверждает. */
+.tb-profile.is-wait {
+  min-width: 6rem;
+  min-height: 2rem;
+  background: color-mix(in srgb, var(--line) 45%, transparent);
+}
+
+.tb-name {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tb-badge {
+  min-width: 1.25rem;
+  padding: 0 0.3rem;
+  border-radius: 1rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.tb-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 0.35rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.tb-panel a,
+.tb-panel button {
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.35rem;
+}
+
+.tb-panel a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.tb-panel button {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tb-panel a:hover,
+.tb-panel a:focus-visible,
+.tb-panel button:hover,
+.tb-panel button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: none;
+}
+
+/* Закрытие тапом мимо — без единой строки JS: невидимая подложка принадлежит
+   <summary>, поэтому клик по ней считается кликом по кнопке и схлопывает меню.
+   Панель лежит выше подложки, подложка — выше бара. */
+.tb-menu[open] > summary::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+}
+
+.skip-link:focus {
+  position: static;
+  display: block;
+  padding: 0.5rem 1rem;
+}
+
+/* Телефон — основной клиент. Ряд 1: вордмарк и профиль (самое нужное всегда на
+   виду). Ряд 2: лента плашек с горизонтальной прокруткой — она переживёт
+   появление «услуг» и «магазинов» без переверстки.
+
+   ⚠️ Места в гриде заданы явно. Понадеяться на автораскладку нельзя: после
+   элемента с `grid-column: 1 / -1` курсор уходит на следующую строку, и профиль
+   уехал бы в третий ряд. */
+@media (max-width: 30rem) {
+  .toolbar {
+    grid-template-columns: 1fr auto;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .tb-brand {
+    font-size: 0.95rem;
+  }
+
+  .tb-right,
+  .tb-menu {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  .tb-services {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tb-services::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* «Ваши данные» с узкого экрана НЕ убираются: docs/AUTH_ESA.md требует эту ссылку
+     в шапке рядом со входом, а телефон — основной клиент, то есть «спрячем на
+     мобильном» означало бы «спрячем у большинства». Вместо этого правая группа
+     складывается в два этажа: строка данных над кнопкой входа. */
+  .tb-right {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.15rem;
+  }
+
+  .tb-name {
+    max-width: 5.5rem;
+  }
+
+  /* Панель шире кнопки, но привязана к правому краю: left вместе с right и
+     min-width дал бы переопределённый случай и уезд за край вьюпорта. */
+  .tb-panel {
+    right: 0;
+    min-width: min(14rem, calc(100vw - 1.5rem));
+  }
 }

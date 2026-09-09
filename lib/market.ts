@@ -5,6 +5,7 @@
 // owner_id с его сессией здесь, а не в правах коллекции: коллекция для посетителей закрыта
 // на запись целиком.
 
+import { cache } from "react";
 import type { Pool } from "pg";
 import type { Payload } from "payload";
 import { trackPool } from "./track-db.ts";
@@ -219,6 +220,26 @@ export async function requestsForOwner(payload: Payload, userId: number, limit =
 }
 
 /** Сколько непросмотренных вызовов у владельца — для шапки («кабинет (3)»). */
+/**
+ * Число непросмотренных вызовов для шапки — одной строкой и без Payload в сигнатуре.
+ *
+ * Отдельная обёртка нужна из-за `cache()`: он ключуется по идентичности аргументов, а
+ * экземпляр `payload` этому мешает. Здесь аргумент один — id человека, значит тулбар и
+ * страница кабинета в одном рендере спросят базу ровно один раз. Готовность схемы
+ * проверяется внутри: шапка не должна зависеть от того, доехала ли миграция спринта 8.
+ */
+export const unseenForUser = cache(async (userId: number): Promise<number> => {
+  try {
+    if (!(await marketReady())) return 0;
+    const { getPayload } = await import("payload");
+    const { default: config } = await import("@payload-config");
+    return await unseenRequests(await getPayload({ config }), userId);
+  } catch {
+    // Кабинет не обязателен для шапки: бейджа просто не будет.
+    return 0;
+  }
+});
+
 export async function unseenRequests(payload: Payload, userId: number): Promise<number> {
   const mine = await ownedEntries(payload, userId);
   if (mine.length === 0) return 0;

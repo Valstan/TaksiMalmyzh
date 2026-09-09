@@ -1,3 +1,4 @@
+import PageHead from "@/components/PageHead";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ACCOUNT_RETENTION_MONTHS } from "@/lib/account-retention";
@@ -47,19 +48,11 @@ export default async function DannyePage({
   const user = await currentUser();
 
   return (
-    <main className="page">
-      <header className="page-header">
-        <p className="site-crumbs">
-          <Link href="/">ПОЗВОНИ</Link>
-          <span aria-hidden="true"> › </span>
-          <span>Ваши данные</span>
-        </p>
-        <h1>Ваши данные</h1>
-        <p className="page-sub">
-          Коротко и без юридического языка: что мы храним, зачем, сколько — и чего не
-          собираем вовсе.
-        </p>
-      </header>
+    <main className="page" id="main" tabIndex={-1}>
+      <PageHead
+        title="Ваши данные"
+        sub="Коротко и без юридического языка: что мы храним, зачем, сколько — и чего не собираем вовсе."
+      />
 
       <section>
         <h2>Пока вы не вошли — мы не знаем, кто вы</h2>

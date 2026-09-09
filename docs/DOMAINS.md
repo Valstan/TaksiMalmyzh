@@ -9,7 +9,8 @@
 выключать — по нему придут и через год.
 
 Реализация — [`lib/sites.ts`](../lib/sites.ts) (реестр и резолвер),
-[`components/SiteHeader.tsx`](../components/SiteHeader.tsx) (крошки матрёшки),
+[`components/SiteToolbar.tsx`](../components/SiteToolbar.tsx) (вордмарк и плашки лиц —
+с 2026-09-10 они заменили хлебные крошки),
 [`deploy/nginx.conf.example`](../deploy/nginx.conf.example) (одна секция на все домены).
 
 ---

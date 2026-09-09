@@ -1,4 +1,4 @@
-import Link from "next/link";
+import PageHead from "@/components/PageHead";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -49,16 +49,11 @@ export default async function ZapisPage() {
   );
 
   return (
-    <main className="page">
-      <header className="page-header">
-        <h1>Запись поездки</h1>
-        <p className="page-sub">
-          Служебная страница этапа A. Записывать можно только свои поездки там, где нет
-          наёмного водителя: за рулём своей машины, на велосипеде, пешком. Поездка в
-          настоящем такси — это уже трасса второго человека и другой этап.{" "}
-          <Link href="/">← на главную</Link>
-        </p>
-      </header>
+    <main className="page" id="main" tabIndex={-1}>
+      <PageHead
+        title="Запись поездки"
+        sub="Служебная страница этапа A. Записывать можно только свои поездки там, где нет наёмного водителя: за рулём своей машины, на велосипеде, пешком. Поездка в настоящем такси — это уже трасса второго человека и другой этап."
+      />
 
       {user ? (
         <TripRecorderMount loginHref={loginHref} />

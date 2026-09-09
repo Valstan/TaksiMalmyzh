@@ -1,3 +1,4 @@
+import PageHead from "@/components/PageHead";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { currentUser } from "@/lib/session";
@@ -27,19 +28,11 @@ export default async function PoezdkiPage() {
   const trips = user ? await sharedWithUser(user.id) : [];
 
   return (
-    <main className="page">
-      <header className="page-header">
-        <p className="site-crumbs">
-          <Link href="/">ПОЗВОНИ</Link>
-          <span aria-hidden="true"> › </span>
-          <span>Поездки знакомых</span>
-        </p>
-        <h1>Поездки знакомых</h1>
-        <p className="page-sub">
-          Поездки, ссылки на которые вам присылали. Откройте — увидите, идёт ли поездка, и
-          маршрут, если он открыт.
-        </p>
-      </header>
+    <main className="page" id="main" tabIndex={-1}>
+      <PageHead
+        title="Поездки знакомых"
+        sub="Поездки, ссылки на которые вам присылали. Откройте — увидите, идёт ли поездка, и маршрут, если он открыт."
+      />
 
       {!user && (
         <p className="page-sub">
@@ -48,20 +41,6 @@ export default async function PoezdkiPage() {
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/auth/oidc/start?next=%2Fpoezdki">войдите</a> и откройте присланную
           ссылку ещё раз.
-        </p>
-      )}
-
-      {/* ⚠️ Единственный вход в запись поездки, существующий в интерфейсе. До 2026-09-10
-          на `/zapis` не вело НИ ОДНОЙ ссылки — grep находил путь только среди запретов в
-          `app/robots.ts`. Владелец 09.09 не смог начать поездку именно поэтому: кнопка
-          «Начать поездку» жива и рисуется, но страницы, где она живёт, из интерфейса было
-          не открыть. Место выбрано по границе этапа A: запись положена только персоналу,
-          значит ссылка обязана жить там, где её не увидит посетитель, — и оба условия
-          гейта (`lib/track-gate.ts`) проверяются здесь теми же вопросами, чтобы ссылка не
-          вела в 404. Постоянное место — строка профиля в шапке. */}
-      {user?.role === "superadmin" && process.env.TRACK_RECORDING === "on" && (
-        <p className="page-sub">
-          Своя поездка (этап A, только персонал): <Link href="/zapis">записать</Link>.
         </p>
       )}
 

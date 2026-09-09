@@ -3,9 +3,15 @@ import Link from "next/link";
 import { getPayload } from "payload";
 import config from "@payload-config";
 import HomeMap from "@/components/HomeMap";
-import SiteHeader from "@/components/SiteHeader";
+import PageHead from "@/components/PageHead";
 import DirectoryList from "@/components/DirectoryList";
-import { resolveSite, siteCategories } from "@/lib/sites";
+import {
+  ROOT_SITE,
+  WHOLE_SERVICE_FALLBACK,
+  resolveSite,
+  siteCategories,
+  siteHref,
+} from "@/lib/sites";
 import { crowdReady, entryStats } from "@/lib/crowd-signals";
 import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
@@ -18,6 +24,7 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const site = resolveSite((await headers()).get("host"));
   const categories = siteCategories(site);
+  const isChild = site.id !== ROOT_SITE.id;
 
   // На категорийном домене номера — это и есть продукт: человек пришёл на
   // `такси.вмалмыже.рф` за телефоном такси, а не за картой. Карта остаётся
@@ -44,8 +51,15 @@ export default async function Home() {
   const ratings = entries.length && (await ratingsReady()) ? await ratingStats(entries.map((e) => e.id)) : undefined;
 
   return (
-    <main className="page">
-      <SiteHeader site={site} page="home" />
+    <main className="page" id="main" tabIndex={-1}>
+      <PageHead title={site.title} sub={site.tagline}>
+        <Link href="/nomera">Справочник номеров</Link>
+        {isChild && (
+          <a href={siteHref(site, ROOT_SITE, "/nomera", WHOLE_SERVICE_FALLBACK)}>
+            Весь справочник города
+          </a>
+        )}
+      </PageHead>
 
       {categories && (
         <>

@@ -1,3 +1,4 @@
+import PageHead from "@/components/PageHead";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getPayload } from "payload";
@@ -39,15 +40,8 @@ export default async function KabinetPage() {
   }
 
   return (
-    <main className="page">
-      <header className="page-header">
-        <p className="site-crumbs">
-          <Link href="/">ПОЗВОНИ</Link>
-          <span aria-hidden="true"> › </span>
-          <span>Кабинет</span>
-        </p>
-        <h1>Кабинет</h1>
-      </header>
+    <main className="page" id="main" tabIndex={-1}>
+      <PageHead title="Кабинет" />
 
       {!user && (
         <p className="page-sub">

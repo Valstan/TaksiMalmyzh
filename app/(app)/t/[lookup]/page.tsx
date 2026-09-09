@@ -1,5 +1,5 @@
+import PageHead from "@/components/PageHead";
 import type { Metadata } from "next";
-import Link from "next/link";
 import TripViewMount from "@/components/TripViewMount";
 
 // Страница просмотра поездки по ссылке доверенного контакта (M0.A §5, §6.4).
@@ -20,15 +20,22 @@ export const metadata: Metadata = {
 export default async function TripPage({ params }: { params: Promise<{ lookup: string }> }) {
   const { lookup } = await params;
   return (
-    <main className="page">
-      <header className="page-header">
-        <p className="site-crumbs">
-          <Link href="/">ПОЗВОНИ</Link>
-          <span aria-hidden="true"> › </span>
-          <span>Поездка</span>
-        </p>
-        <h1>Поездка</h1>
-      </header>
+    <main className="page" id="main" tabIndex={-1}>
+      <PageHead
+        title="Поездка"
+        sub={
+          <>
+            Чтобы поездка потом нашлась у вас в «Поездках знакомых»,{" "}
+            {/* Роут отвечает редиректом на чужой хост — полная навигация, не <Link>.
+                `next` обязателен именно здесь: без него вход уводит на главную корня, и
+                человек теряет ссылку на поездку, за которой пришёл. */}
+            <a href={`/api/auth/oidc/start?next=%2Ft%2F${encodeURIComponent(lookup)}`} rel="nofollow">
+              войдите
+            </a>{" "}
+            — ссылка привяжется к вам.
+          </>
+        }
+      />
 
       <TripViewMount lookup={lookup} />
 
