@@ -1076,3 +1076,67 @@ body {
   gap: 0.4rem;
   align-items: flex-start;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Быстрый набор — 3–5 номеров над плашками полок.
+   Выглядит как баннер, устроен наоборот: порядок считает сайт, место не покупается.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.hot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line));
+  border-radius: 0.6rem;
+}
+
+.hot-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.hot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ⚠️ CallPhones возвращает НЕСКОЛЬКО соседних узлов: телефоны, вопрос «дозвонились?» и
+   благодарность. Без разрешения переносить их флексом вопрос вклинился бы сбоку от
+   номера, а не встал под ним, — то есть ломал бы строку витрины, а не увеличивал её. */
+.hot-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.hot-row .ask,
+.hot-row .ask-thanks {
+  flex: 1 0 100%;
+}
+
+.hot-name {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+  min-width: 8rem;
+}
+
+.hot-cat {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.hot-caption {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
+}

@@ -6,6 +6,8 @@ import HomeMap from "@/components/HomeMap";
 import PageHead from "@/components/PageHead";
 import DirectoryList from "@/components/DirectoryList";
 import ServiceTiles from "@/components/ServiceTiles";
+import HotNumbers from "@/components/HotNumbers";
+import { hotCaption, hotNumbers, type HotCandidate } from "@/lib/hot-numbers";
 import { shelfCounts, shelves } from "@/lib/shelves";
 import {
   ROOT_SITE,
@@ -37,32 +39,43 @@ export default async function Home() {
   const shelfList = shelves();
   const counts = await shelfCounts(shelfList);
 
-  // На категорийном домене номера — это и есть продукт: человек пришёл на
-  // `такси.вмалмыже.рф` за телефоном такси, а не за картой. Карта остаётся
-  // ниже, потому что адрес всё равно приходится называть в трубку.
-  const entries = categories
-    ? (
-        await (
-          await getPayload({ config })
-        ).find({
-          collection: "entries",
-          // Гейт публикации живёт в access-правиле коллекции; `overrideAccess:
-          // false` — чтобы страница ходила по тем же правилам, что и весь мир.
-          overrideAccess: false,
-          where: { category: { in: categories } },
-          limit: 200,
-          sort: "name",
-          depth: 0,
-        })
-      ).docs
-    : [];
-  const stats = entries.length && (await crowdReady()) ? await entryStats(entries.map((e) => e.id)) : undefined;
-  const viewer = entries.length ? await currentUser() : null;
+  // Записи читаются ОДИН раз и на обе нужды: список на категорийном домене и кандидаты в
+  // быстрый набор. Раньше корень в базу не ходил вовсе, теперь ходит — но одним запросом,
+  // а не двумя.
+  //
+  // Гейт публикации живёт в access-правиле коллекции; `overrideAccess: false` — чтобы
+  // страница ходила по тем же правилам, что и весь мир. Условия «опубликовано» в SQL
+  // агрегатов ниже нет и быть не должно: это была бы вторая копия гейта.
+  const payload = await getPayload({ config });
+  const { docs: entries } = await payload.find({
+    collection: "entries",
+    overrideAccess: false,
+    ...(categories ? { where: { category: { in: categories } } } : {}),
+    limit: 300,
+    sort: "name",
+    depth: 0, // owner — id, не документ: посетителю чужой пользователь не отдаётся
+  });
+
+  const candidates: HotCandidate[] = entries.map((d) => ({
+    id: d.id,
+    name: d.name,
+    category: d.category,
+    phones: (d.phones ?? []).map((ph) => ({ id: ph.id, number: ph.number })),
+  }));
+  const hot = await hotNumbers(candidates, new Date());
+  // ⚠️ Агрегаты карточек нужны только там, где карточки рисуются, — то есть на
+  // категорийном домене. Корень записи читает (для быстрого набора), но списка не
+  // показывает, и спрашивать под него сигналы, рейтинги, карму и заявки было бы четырьмя
+  // запросами в никуда. Гейт — `categories`, а не `entries.length`: до 2026-09-10 это было
+  // одно и то же, а теперь нет.
+  const forCards = categories ? entries.map((e) => e.id) : [];
+  const stats = forCards.length && (await crowdReady()) ? await entryStats(forCards) : undefined;
+  const viewer = forCards.length ? await currentUser() : null;
   const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
-  const ratings = entries.length && (await ratingsReady()) ? await ratingStats(entries.map((e) => e.id)) : undefined;
+  const ratings = forCards.length && (await ratingsReady()) ? await ratingStats(forCards) : undefined;
   // Карма — свой гейт готовности, как у сигналов и рейтингов: страница не должна зависеть
   // от того, доехала ли миграция.
-  const karma = entries.length && (await karmaReady()) ? await karmaStats(entries.map((e) => e.id)) : undefined;
+  const karma = forCards.length && (await karmaReady()) ? await karmaStats(forCards) : undefined;
 
   return (
     <main className="page" id="main" tabIndex={-1}>
@@ -74,6 +87,10 @@ export default async function Home() {
           </a>
         )}
       </PageHead>
+
+      {/* Быстрый набор — над плашками на обоих лицах: это самое короткое, что сайт может
+          дать человеку, пришедшему позвонить. */}
+      <HotNumbers rows={hot.rows} caption={hotCaption(hot.hasSignals)} />
 
       {/* ⚠️ На КОРНЕ витрина стоит сразу под шапкой и заменяет собой список номеров.
           Работа корня — не показать номера, а ответить «куда мне»: двести карточек над
