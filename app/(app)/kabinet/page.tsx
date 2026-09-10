@@ -7,13 +7,22 @@ import { currentUser } from "@/lib/session";
 import { marketReady, myClaims, ownedEntries, pendingClaims, requestsForOwner } from "@/lib/market";
 import CabinetOwner from "@/components/CabinetOwner";
 import CabinetStaff from "@/components/CabinetStaff";
+import CabinetComments from "@/components/CabinetComments";
 import { ratingsReady, ratingStats, type RatingStats } from "@/lib/ratings";
 import { entryEditsReady, pendingEntryEdits, type EntryEdit } from "@/lib/entry-edits";
+import {
+  HIDDEN_RETENTION_DAYS,
+  commentsForOwner,
+  commentsReady,
+  pendingComments,
+  type ModerationRow,
+} from "@/lib/comments";
 
 // Кабинет (спринт 8). Одна страница, два лица по роли:
-//  - бизнес (владелец записи): своя карточка и вызовы с адресом;
-//  - персонал: заявки «это мой бизнес», ждущие звонка, и (с 2026-09-10) новые номера,
-//    предложенные посетителями к организациям, которые уже есть в справочнике.
+//  - бизнес (владелец записи): своя карточка, вызовы с адресом и (с 2026-09-10) все
+//    комментарии о ней — с правом потребовать удаления;
+//  - персонал: заявки «это мой бизнес», новые номера к организациям и комментарии на
+//    проверке.
 // Посетитель без карточек видит, как её получить.
 
 export const dynamic = "force-dynamic";
@@ -31,19 +40,24 @@ export default async function KabinetPage() {
   let requests: Awaited<ReturnType<typeof requestsForOwner>> = [];
   let claims: Awaited<ReturnType<typeof pendingClaims>> = [];
   let edits: EntryEdit[] = [];
+  let staffComments: ModerationRow[] = [];
+  let ownerComments: ModerationRow[] = [];
   let pendingMine = 0;
   let ratings = new Map<number, RatingStats>();
   if (user && ready) {
     const payload = await getPayload({ config });
+    // Свои гейты готовности у очереди номеров и у комментариев: страница не должна
+    // зависеть от того, доехала ли каждая миграция.
+    const cReady = await commentsReady();
     owned = await ownedEntries(payload, user.id);
     if (owned.length && (await ratingsReady())) ratings = await ratingStats(owned.map((e) => e.id));
+    if (owned.length && cReady) ownerComments = await commentsForOwner(payload, owned.map((e) => e.id));
     requests = await requestsForOwner(payload, user.id);
     pendingMine = [...(await myClaims(user.id)).values()].filter((s) => s === 0).length;
     if (user.role === "superadmin") {
       claims = await pendingClaims(payload);
-      // Очередь новых номеров — свой гейт готовности: страница не должна зависеть от того,
-      // доехала ли миграция.
       if (await entryEditsReady()) edits = await pendingEntryEdits(payload);
+      if (cReady) staffComments = await pendingComments(payload);
     }
   }
 
@@ -63,7 +77,12 @@ export default async function KabinetPage() {
 
       {user && !ready && <p className="page-sub">Кабинеты пока недоступны.</p>}
 
-      {user && ready && user.role === "superadmin" && <CabinetStaff claims={claims} edits={edits} />}
+      {user && ready && user.role === "superadmin" && (
+        <>
+          <CabinetStaff claims={claims} edits={edits} />
+          <CabinetComments mode="staff" rows={staffComments} hiddenDays={HIDDEN_RETENTION_DAYS} />
+        </>
+      )}
 
       {user && ready && owned.length === 0 && user.role !== "superadmin" && (
         <p className="page-sub">
@@ -73,7 +92,12 @@ export default async function KabinetPage() {
         </p>
       )}
 
-      {user && ready && owned.length > 0 && <CabinetOwner entries={owned} requests={requests} ratings={ratings} />}
+      {user && ready && owned.length > 0 && (
+        <>
+          <CabinetOwner entries={owned} requests={requests} ratings={ratings} />
+          <CabinetComments mode="owner" rows={ownerComments} hiddenDays={HIDDEN_RETENTION_DAYS} />
+        </>
+      )}
     </main>
   );
 }

@@ -21,6 +21,7 @@ import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
 import { ratingsReady, ratingStats } from "@/lib/ratings";
 import { karmaReady, karmaStats } from "@/lib/karma";
+import { commentCounts, commentsReady } from "@/lib/comments";
 
 // Главная зависит от домена (матрёшка, `lib/sites.ts`) и ходит в базу — пререндерить
 // нельзя ни то, ни другое.
@@ -65,17 +66,19 @@ export default async function Home() {
   const hot = await hotNumbers(candidates, new Date());
   // ⚠️ Агрегаты карточек нужны только там, где карточки рисуются, — то есть на
   // категорийном домене. Корень записи читает (для быстрого набора), но списка не
-  // показывает, и спрашивать под него сигналы, рейтинги, карму и заявки было бы четырьмя
-  // запросами в никуда. Гейт — `categories`, а не `entries.length`: до 2026-09-10 это было
-  // одно и то же, а теперь нет.
+  // показывает, и спрашивать под него сигналы, рейтинги, карму, заявки и комментарии было
+  // бы пятью запросами в никуда. Гейт — `categories`, а не `entries.length`: до 2026-09-10
+  // это было одно и то же, а теперь нет.
   const forCards = categories ? entries.map((e) => e.id) : [];
   const stats = forCards.length && (await crowdReady()) ? await entryStats(forCards) : undefined;
   const viewer = forCards.length ? await currentUser() : null;
   const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
   const ratings = forCards.length && (await ratingsReady()) ? await ratingStats(forCards) : undefined;
-  // Карма — свой гейт готовности, как у сигналов и рейтингов: страница не должна зависеть
-  // от того, доехала ли миграция.
+  // Карма и комментарии — свой гейт готовности, как у сигналов и рейтингов: страница не
+  // должна зависеть от того, доехала ли миграция.
   const karma = forCards.length && (await karmaReady()) ? await karmaStats(forCards) : undefined;
+  const comments =
+    forCards.length && (await commentsReady()) ? await commentCounts(entries) : undefined;
 
   return (
     <main className="page" id="main" tabIndex={-1}>
@@ -108,6 +111,7 @@ export default async function Home() {
               claims={claims}
               ratings={ratings}
               karma={karma}
+              comments={comments}
             />
           ) : (
             <p className="page-sub">

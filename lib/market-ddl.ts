@@ -136,3 +136,57 @@ CREATE UNIQUE INDEX entry_edit_dedup_idx
 `;
 
 export const ENTRY_EDIT_DDL_DOWN = `DROP TABLE IF EXISTS market.entry_edit;`;
+
+// Комментарии посетителей под номерами — решение владельца 2026-09-10. Миграция
+// 20260910_160000_comments. Логика и обоснования — lib/comments.ts и docs/COMMENTS.md.
+//
+// ⚠️ Отменяет часть docs/RATINGS.md («текста нет»): звёзды по-прежнему без текста, а текст
+// живёт здесь, отдельным механизмом, с жалобами и модерацией. Риск принят владельцем явно.
+//
+// Автора нет: ни аккаунта, ни IP. device_ref — HMAC устройства, тот же, что у краудсигналов.
+// phone_key = '' — про организацию целиком, иначе ключ номера (lib/phone-key.ts).
+// Требование владельца карточки — не жалоба, а своя отметка времени owner_demand_at: в
+// таблице жалоб ему не место (см. demandByOwner в lib/comments.ts, почему).
+// Внешнего ключа на public.entries нет — как у market.claim; сирот подметает регламент.
+export const COMMENTS_DDL_UP = `
+CREATE TABLE market.comment (
+  id              integer     PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  entry_id        integer     NOT NULL,
+  phone_key       text        NOT NULL DEFAULT '',
+  body            text        NOT NULL,
+  device_ref      bytea       NOT NULL,
+  at              timestamptz NOT NULL DEFAULT now(),
+  -- 0 виден, 1 скрыт до проверки (жалобы или требование владельца), 2 скрыт персоналом,
+  -- 3 возвращён персоналом (виден и жалобами больше не скрывается)
+  state           smallint    NOT NULL DEFAULT 0,
+  reports         smallint    NOT NULL DEFAULT 0,
+  hidden_at       timestamptz,
+  owner_demand_at timestamptz,
+  decided_at      timestamptz,
+  -- Длина продублирована в базе: правило, живущее только в коде, однажды переживёт свой код.
+  CONSTRAINT comment_body_len  CHECK (char_length(body) BETWEEN 10 AND 400),
+  CONSTRAINT comment_phone_key CHECK (char_length(phone_key) <= 32),
+  CONSTRAINT comment_state     CHECK (state BETWEEN 0 AND 3)
+);
+-- Лента карточки: свежие сверху, курсор по id.
+CREATE INDEX comment_entry_idx ON market.comment (entry_id, id DESC);
+-- Очередь персонала: только нерешённое.
+CREATE INDEX comment_queue_idx ON market.comment (at)
+  WHERE decided_at IS NULL AND (state = 1 OR owner_demand_at IS NOT NULL);
+-- Лимит «не больше N с устройства в сутки» — единственный барьер без IP.
+CREATE INDEX comment_device_idx ON market.comment (device_ref, at DESC);
+
+CREATE TABLE market.comment_report (
+  comment_id integer     NOT NULL REFERENCES market.comment(id) ON DELETE CASCADE,
+  device_ref bytea       NOT NULL,
+  at         timestamptz NOT NULL DEFAULT now(),
+  -- Анти-накрутка — первичный ключ, как у crowd.signal: вторая жалоба с того же устройства
+  -- на тот же комментарий строку не создаёт и счётчик не двигает.
+  PRIMARY KEY (comment_id, device_ref)
+);
+`;
+
+export const COMMENTS_DDL_DOWN = `
+DROP TABLE IF EXISTS market.comment_report;
+DROP TABLE IF EXISTS market.comment;
+`;

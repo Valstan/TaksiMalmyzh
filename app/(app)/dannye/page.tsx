@@ -6,6 +6,7 @@ import { METRIKA_ID } from "@/lib/metrika";
 import { RETENTION_DAYS as SIGNAL_DAYS } from "@/lib/crowd-signals";
 import { CLAIM_GRACE_DAYS, REQUEST_RETENTION_DAYS } from "@/lib/market";
 import { RATING_WINDOW_DAYS } from "@/lib/ratings";
+import { COMMENT_RETENTION_DAYS, HIDDEN_RETENTION_DAYS } from "@/lib/comments";
 import { currentUser } from "@/lib/session";
 import { ECOSYSTEM_SERVICES_URL } from "@/lib/sites";
 
@@ -82,7 +83,15 @@ export default async function DannyePage({
           <li>рекламных сетей и продажи данных на сайте нет;</li>
           <li>
             предложение номера в справочник уходит <strong>без автора</strong>: кто его
-            прислал, мы не записываем.
+            прислал, мы не записываем;
+          </li>
+          <li>
+            <strong>комментарий под номером — тоже без автора</strong>: ни имени, ни аккаунта,
+            ни адреса. К нему привязана та же необратимая метка устройства, о которой ниже, —
+            чтобы одно устройство не завалило карточку и одна жалоба считалась один раз.
+            Видимый комментарий живёт {COMMENT_RETENTION_DAYS} дней, скрытый —{" "}
+            {HIDDEN_RETENTION_DAYS}. Свой можно удалить кнопкой с того же устройства, чужой
+            убрать — по <Link href="/pravila">правилам комментариев</Link>.
           </li>
         </ul>
         <p>

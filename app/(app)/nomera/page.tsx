@@ -19,6 +19,7 @@ import { currentUser } from "@/lib/session";
 import { marketReady, myClaims } from "@/lib/market";
 import { ratingsReady, ratingStats } from "@/lib/ratings";
 import { karmaReady, karmaStats } from "@/lib/karma";
+import { commentCounts, commentsReady } from "@/lib/comments";
 
 // Страница ходит в базу — пререндерить её на сборке нельзя (в CI базы нет),
 // а кэшировать надолго не нужно: правки супер-админа должны быть видны сразу.
@@ -81,6 +82,8 @@ export default async function NomeraPage({
   const claims = viewer && (await marketReady()) ? await myClaims(viewer.id) : undefined;
   const ratings = (await ratingsReady()) ? await ratingStats(docs.map((d) => d.id)) : undefined;
   const karma = (await karmaReady()) ? await karmaStats(docs.map((d) => d.id)) : undefined;
+  // Комментарии (2026-09-10): одно число на карточку, сама лента грузится по нажатию.
+  const comments = (await commentsReady()) ? await commentCounts(docs) : undefined;
 
   return (
     <main className="page" id="main" tabIndex={-1}>
@@ -115,6 +118,7 @@ export default async function NomeraPage({
         claims={claims}
         ratings={ratings}
         karma={karma}
+        comments={comments}
       />
 
       <SuggestForm defaultCategory={defaultCategory} />
@@ -122,7 +126,8 @@ export default async function NomeraPage({
       <footer className="page-footer">
         <p>
           Заметили неверный номер или цену? Напишите об этом в форме выше — проверим и
-          поправим.
+          поправим. Комментарии под номерами — мнения посетителей:{" "}
+          <Link href="/pravila">правила и как убрать комментарий</Link>.
         </p>
       </footer>
     </main>
