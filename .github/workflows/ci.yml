@@ -16,6 +16,13 @@ on:
 permissions:
   contents: read
 
+# Все run-шаги — под `bash -eo pipefail` (письмо brain 2026-09-05, [G322]). Без явного
+# shell раннер ubuntu зовёт `bash -e {0}` БЕЗ pipefail, и первый же будущий `… | grep` в
+# шаге был бы зелёным молча, даже если левая часть конвейера упала. Одна строка на файл.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

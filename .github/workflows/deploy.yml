@@ -21,6 +21,12 @@ on:
 permissions:
   contents: read
 
+# Все run-шаги — под `bash -eo pipefail` (письмо brain 2026-09-05, [G322]): без явного
+# shell конвейер в шаге зеленеет, даже если его левая часть упала.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: deploy
   cancel-in-progress: false

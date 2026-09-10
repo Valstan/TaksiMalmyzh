@@ -26,6 +26,13 @@ on:
 permissions:
   contents: read
 
+# Все run-шаги — под `bash -eo pipefail` (письмо brain 2026-09-05, [G322]): без явного
+# shell конвейер в шаге зеленеет, даже если его левая часть упала. Для пробы это вдвойне
+# важно — её красный прогон и есть алертинг проекта, а тихая зелень его бы отключила.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: probe-prod
   cancel-in-progress: false
