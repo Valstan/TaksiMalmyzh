@@ -12,6 +12,7 @@ import * as migration_20260903_180000_ratings from './20260903_180000_ratings';
 import * as migration_20260903_200000_last_login from './20260903_200000_last_login';
 import * as migration_20260910_120000_karma from './20260910_120000_karma';
 import * as migration_20260910_140000_entry_edits from './20260910_140000_entry_edits';
+import * as migration_20260910_160000_comments from './20260910_160000_comments';
 
 export const migrations = [
   {
@@ -83,5 +84,10 @@ export const migrations = [
     up: migration_20260910_140000_entry_edits.up,
     down: migration_20260910_140000_entry_edits.down,
     name: '20260910_140000_entry_edits'
+  },
+  {
+    up: migration_20260910_160000_comments.up,
+    down: migration_20260910_160000_comments.down,
+    name: '20260910_160000_comments'
   },
 ];

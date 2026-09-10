@@ -7,10 +7,13 @@ import {
   entryEditsReady,
   rejectEntryEdit,
 } from "@/lib/entry-edits";
+import { commentsReady, demandByOwner, hideByStaff, restoreByStaff } from "@/lib/comments";
 
-// Действия кабинета. Владелец: card (правка своей карточки), seen/done (вызов).
+// Действия кабинета. Владелец: card (правка своей карточки), seen/done (вызов),
+// comment_demand (требование удалить комментарий о своей карточке).
 // Персонал: approve/reject (заявка на владение — после звонка по номеру),
-// edit_approve/edit_reject (новый номер к существующей организации — тоже после звонка).
+// edit_approve/edit_reject (новый номер к существующей организации — тоже после звонка),
+// comment_hide/comment_restore (комментарий на проверке).
 // Право — сессия; чья именно — проверяется в lib/market.ts по owner_id, не здесь.
 
 export const dynamic = "force-dynamic";
@@ -87,6 +90,26 @@ export async function POST(request: Request) {
         return bad(`У карточки уже ${MAX_PHONES_PER_ENTRY} номеров — поправьте её в админке.`, 409);
       }
       return NextResponse.json({ ok: true, result: r });
+    }
+    case "comment_hide":
+    case "comment_restore": {
+      if (user.role !== "superadmin") return bad("Только персонал.", 403);
+      if (!Number.isInteger(id)) return bad("Нужен id комментария.");
+      if (!(await commentsReady())) return bad("Комментарии пока недоступны.", 503);
+      const ok = body.action === "comment_hide" ? await hideByStaff(id) : await restoreByStaff(id);
+      return ok ? NextResponse.json({ ok: true }) : bad("Комментарий не найден.", 404);
+    }
+    case "comment_demand": {
+      // Требование — владельцу карточки, и только о своей: сверка по owner_id, как у
+      // остальных действий владельца. Исход возвращается всегда, а не молчаливое ok.
+      if (!Number.isInteger(id)) return bad("Нужен id комментария.");
+      if (!(await commentsReady())) return bad("Комментарии пока недоступны.", 503);
+      const mine = (await ownedEntries(payload, userId)).map((e) => e.id);
+      if (mine.length === 0) return bad("У вас нет карточек.", 403);
+      const r = await demandByOwner(mine, id);
+      return r === "not_found"
+        ? bad("Это не комментарий о вашей карточке.", 404)
+        : NextResponse.json({ ok: true, result: r });
     }
     default:
       return bad("Неизвестное действие.");

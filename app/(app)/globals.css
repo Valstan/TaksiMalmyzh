@@ -1200,3 +1200,133 @@ body {
   align-items: center;
   gap: 0.4rem;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Комментарии под номерами (решение владельца 2026-09-10) и страница правил.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.cmt {
+  margin-top: 0.35rem;
+}
+
+.cmt-toggle {
+  padding: 0.2rem 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cmt-body {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.cmt-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cmt-item {
+  padding: 0.5rem 0.6rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+}
+
+/* Заглушка на месте скрытого: «здесь что-то было, персонал смотрит» — механизм жалоб
+   обязан быть видимым, иначе трое сговорившихся стирали бы неудобное молча. */
+.cmt-hidden {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.cmt-badge {
+  display: inline-block;
+  margin-bottom: 0.2rem;
+  padding: 0 0.4rem;
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 0.75rem;
+}
+
+.cmt-text {
+  margin: 0;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.cmt-meta {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.cmt-act {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.cmt-form {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.cmt-form label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.cmt-form textarea,
+.cmt-form select {
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+}
+
+.cmt-form button[type="submit"] {
+  justify-self: start;
+  padding: 0.5rem 0.9rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cmt-form button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cmt-rules {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.pravila section h2 {
+  margin: 1rem 0 0.3rem;
+  font-size: 1.1rem;
+}

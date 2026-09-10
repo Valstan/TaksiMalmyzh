@@ -6,6 +6,7 @@ import { CATEGORY_LABELS, CATEGORY_ORDER } from "@/lib/shelves";
 import { statsLine, type EntryStats } from "@/lib/crowd-signals";
 import CallPhones from "@/components/CallPhones";
 import EntryActions from "@/components/EntryActions";
+import EntryComments from "@/components/EntryComments";
 import RateWidget from "@/components/RateWidget";
 import KarmaVote from "@/components/KarmaVote";
 import { ratingLine, type RatingStats } from "@/lib/ratings";
@@ -20,10 +21,12 @@ export type Viewer = { id: number; role: string } | null;
 // с первым при первой же правке (класс #087).
 
 function EntryCard({
-  entry, stats, viewer, claimed, rating, karma,
+  entry, stats, viewer, claimed, rating, karma, comments,
 }: {
   entry: Entry; stats?: EntryStats; viewer: Viewer; claimed: number | null;
   rating?: RatingStats; karma?: EntryKarma;
+  /** Сколько комментариев за кнопкой; `undefined` — механизм ещё не включён (нет схемы). */
+  comments?: number;
 }) {
   const line = statsLine(stats);
   const stars = ratingLine(rating);
@@ -44,6 +47,15 @@ function EntryCard({
         karma={karma ? Object.fromEntries(karma.phones) : undefined}
       />
       {line && <p className="dir-stats">{line}</p>}
+      {/* Комментарии — буквально «под номерами», как просил владелец. Не рисуются, пока нет
+          схемы: кнопка, которая открывает «недоступно», хуже её отсутствия. */}
+      {comments !== undefined && (
+        <EntryComments
+          entryId={entry.id}
+          phones={(entry.phones ?? []).map((p) => p.number)}
+          count={comments}
+        />
+      )}
       {entry.prices && entry.prices.length > 0 && (
         <ul className="dir-prices">
           {entry.prices.map((price) => (
@@ -89,6 +101,7 @@ export default function DirectoryList({
   claims,
   ratings,
   karma,
+  comments,
 }: {
   entries: Entry[];
   showHeadings?: boolean;
@@ -102,6 +115,11 @@ export default function DirectoryList({
   ratings?: Map<number, RatingStats>;
   /** Карма (решение владельца 2026-09-10) по id записи. */
   karma?: Map<number, EntryKarma>;
+  /**
+   * Счётчики комментариев по id записи (решение владельца 2026-09-10). Нет карты — механизм
+   * не включён (нет схемы), и лент под карточками нет вовсе.
+   */
+  comments?: Map<number, number>;
 }) {
   const byCategory = new Map<EntryCategory, Entry[]>();
   for (const entry of entries) {
@@ -128,6 +146,7 @@ export default function DirectoryList({
                   claimed={claims?.get(entry.id) ?? null}
                   rating={ratings?.get(entry.id)}
                   karma={karma?.get(entry.id)}
+                  comments={comments ? (comments.get(entry.id) ?? 0) : undefined}
                 />
               ))}
             </ul>
@@ -137,3 +156,4 @@ export default function DirectoryList({
     </>
   );
 }
+

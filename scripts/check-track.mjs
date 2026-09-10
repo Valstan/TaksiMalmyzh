@@ -564,6 +564,125 @@ try {
       ok("подсказки и очередь правок проверены");
     }
 
+    // --- комментарии под номерами (2026-09-10)
+    //
+    // Схему market снова поднимаем своим вызовом: предыдущий раздел её снёс, а
+    // COMMENTS_DDL_UP схему не создаёт.
+    {
+      const { MARKET_DDL_UP, MARKET_DDL_DOWN, COMMENTS_DDL_UP } = await import("../lib/market-ddl.ts");
+      process.env.PAYLOAD_SECRET ??= "check-secret";
+      const cm = await import("../lib/comments.ts");
+
+      // Текст — чистые функции. Фразы-«живые» взяты из состязательной проверки проекта:
+      // первая версия фильтра телефонов резала именно их.
+      const t = (s) => cm.checkText(cm.cleanText(s));
+      eq(t("коротко"), "short", "короче десяти знаков — отказ");
+      eq(t("x".repeat(401)), "long", "длиннее четырёхсот — отказ");
+      eq(t("звоните лучше 8 912 000-00-00, там дешевле"), "phone", "телефон в тексте — отказ");
+      eq(t("номер +7 (912) 000 00 00 не отвечает"), "phone", "телефон со скобками — отказ");
+      eq(t("цена 150 - 200 рублей, нормально"), null, "цены через тире — не телефон");
+      eq(t("ждал 10 - 15 минут, это долго"), null, "минуты через тире — не телефон");
+      eq(t("до Кирова 3 500 ₽, дорого вышло"), null, "сумма с разделителем тысяч — не телефон");
+      eq(t("приехали 10.09.2026 вовремя, спасибо"), null, "дата через точки — не телефон");
+      eq(t("заезжайте на такси-малмыж.рф там дешевле"), "link", "кириллический домен — ссылка");
+      eq(t("пишите в телеграм @taxi_malmyzh быстрее"), "link", "ник мессенджера — ссылка");
+      eq(t("смотрите https://example.com тут"), "link", "обычная ссылка — отказ");
+      eq(t("приехали быстро, т.е. за пять минут"), null, "сокращение с точкой — не ссылка");
+      eq(cm.cleanText("  много\u200B   пробелов \n и строк  "), "много пробелов и строк",
+        "невидимые символы убраны, пробелы схлопнуты");
+      eq(t("звоните 8\u200B912\u200B000\u200B00\u200B00 дешевле"), "phone",
+        "номер, разрезанный символами нулевой ширины, — всё равно телефон");
+
+      await pool.query(MARKET_DDL_DOWN);
+      await pool.query(MARKET_DDL_UP);
+      await pool.query(COMMENTS_DDL_UP);
+
+      const A = "dev-A-0123456789abcdef";
+      const B = "dev-B-0123456789abcdef";
+      const C = "dev-C-0123456789abcdef";
+      const D = "dev-D-0123456789abcdef";
+      const num = "+79120000000";
+
+      const a1 = await cm.addComment(1, "", "классно катают, не опаздывают", A, pool);
+      eq(a1.ok, true, "комментарий об организации опубликован сразу");
+      const a2 = await cm.addComment(1, num, "трубку не берут третий день подряд", A, pool);
+      eq(a2.ok, true, "комментарий о номере опубликован");
+      eq((await cm.addComment(1, "", "звоните 8 912 000-00-00 там дешевле", A, pool)).reason, "phone",
+        "телефон в тексте не доходит до базы");
+      eq((await cm.addComment(1, "", "третий за сутки к этой карточке", A, pool)).ok, true, "третий к карточке — можно");
+      eq((await cm.addComment(1, "", "четвёртый за сутки к этой карточке", A, pool)).reason, "too_many",
+        "четвёртый к одной карточке с устройства — отказ");
+
+      eq((await cm.listComments(1, [num], null, 10, pool)).length, 3, "лента показывает всё видимое");
+      eq((await cm.listComments(1, ["+79990000000"], null, 10, pool)).some((c) => c.phoneKey === num), false,
+        "номер в карточке исправили — комментарий о старом номере с карточки ушёл");
+      eq((await cm.commentCounts([{ id: 1, phones: [{ number: "8 912 000-00-00" }] }], pool)).get(1), 3,
+        "число на кнопке сходится с лентой");
+      eq((await cm.commentCounts([{ id: 1, phones: [] }], pool)).get(1), 2,
+        "и после исправления номера — тоже сходится");
+
+      // Жалобы: три разных устройства — скрыт до проверки.
+      const id = a1.id;
+      eq(await cm.reportComment(id, B, pool), "counted", "первая жалоба");
+      eq(await cm.reportComment(id, B, pool), "counted", "повтор с того же устройства ничего не двигает");
+      eq(await cm.reportComment(id, C, pool), "counted", "вторая жалоба");
+      eq(await cm.reportComment(id, D, pool), "hidden", "третья с другого устройства — скрыт до проверки");
+      eq((await cm.listComments(1, [num], null, 10, pool)).find((c) => c.id === id)?.text, null,
+        "текст скрытого не отдаётся никому");
+      eq((await cm.reviewQueue(pool)).some((r) => r.id === id), true, "скрытый — в очереди персонала");
+
+      eq(await cm.restoreByStaff(id, pool), true, "персонал вернул");
+      eq(await cm.reportComment(id, "dev-E-0123456789abcdef", pool), "counted",
+        "возвращённый жалобами больше не скрывается");
+      eq((await cm.reviewQueue(pool)).some((r) => r.id === id), false, "и из очереди ушёл");
+
+      // Требование владельца — не жалоба, и исход у него всегда честный.
+      const own = a2.id;
+      eq(await cm.demandByOwner([2], own, pool), "not_found", "чужой карточки требование не касается");
+      eq(await cm.demandByOwner([1], own, pool), "hidden", "требование скрывает сразу, не дожидаясь трёх жалоб");
+      eq(await cm.demandByOwner([1], own, pool), "already_pending", "повтор — «уже ждёт решения»");
+      eq(await cm.restoreByStaff(own, pool), true, "персонал рассмотрел и оставил");
+      eq(await cm.demandByOwner([1], own, pool), "kept", "владелец видит исход, а не молчаливое ok");
+      eq(await cm.demandByOwner([1], id, pool), "requeued", "требование к возвращённому — снова в очередь");
+      eq((await cm.reviewQueue(pool)).some((r) => r.id === id), true, "и оно правда в очереди");
+      eq(await cm.hideByStaff(id, pool), true, "персонал скрыл насовсем");
+      eq(await cm.demandByOwner([1], id, pool), "removed", "скрытый персоналом — «уже скрыт»");
+      eq((await cm.listComments(1, [num], null, 10, pool)).some((c) => c.id === id), false,
+        "скрытый персоналом из ленты ушёл совсем, без заглушки");
+
+      // Своё удаление — только с того же устройства.
+      const a3 = await cm.addComment(2, "", "мой комментарий, передумал его оставлять", B, pool);
+      eq(await cm.removeOwnComment(a3.id, A, pool), "not_yours", "чужой комментарий удалить нельзя");
+      eq(await cm.removeOwnComment(a3.id, B, pool), "removed", "свой — удаляется с того же устройства");
+      eq(await cm.removeOwnComment(a3.id, B, pool), "not_found", "второй раз — удалять уже нечего");
+
+      // Сроки. Скрытый персоналом без отметки времени тоже не вечен: возраст — от создания.
+      await pool.query(
+        `UPDATE market.comment SET state = 2, hidden_at = NULL, at = now() - interval '31 days' WHERE id = $1`,
+        [own],
+      );
+      eq((await cm.pruneComments(pool)).hidden, 1, "скрытый без отметки скрытия удалён по сроку от создания");
+      await pool.query(`UPDATE market.comment SET at = now() - interval '366 days' WHERE state IN (0, 3)`);
+      eq((await cm.pruneComments(pool)).visible, 1, "видимые старше года удалены");
+
+      // Комментарии к удалённым записям. В базе проверки (CI) таблиц Payload нет вовсе — тогда
+      // подметание обязано молча пропуститься, а не уронить регламент.
+      await pool.query(`DELETE FROM market.comment`);
+      const { rows: [pe] } = await pool.query(`SELECT to_regclass('public.entries') IS NOT NULL AS yes`);
+      if (!pe.yes) {
+        eq(await cm.pruneOrphanComments(pool), 0, "нет таблицы записей — подметание пропущено, а не упало");
+        await pool.query(`CREATE TABLE public.entries (id integer PRIMARY KEY)`);
+      }
+      await cm.addComment(987654, "", "комментарий к удалённой записи", C, pool);
+      eq(await cm.pruneOrphanComments(pool), 1, "комментарий к удалённой записи подметён");
+      if (!pe.yes) await pool.query(`DROP TABLE public.entries`);
+
+      eq(await cm.commentsReady(pool), true, "готовность комментариев видна");
+      await pool.query(MARKET_DDL_DOWN);
+      eq(await cm.commentsReady(pool), false, "и пропадает вместе со схемой");
+      ok("комментарии проверены");
+    }
+
     // вернуть поездку в исходное для дальнейших проверок регламента
     await pool.query(`UPDATE track.trip SET alarm_at = NULL, disclosed_at = NULL, all_ok_at = NULL, last_point_at = NULL WHERE id = $1`, [trip.id]);
     await pool.query(`DELETE FROM track.share WHERE trip_id = $1`, [trip.id]);
@@ -987,6 +1106,8 @@ try {
     await pool.query(ddl.RATINGS_DDL_UP).catch(() => {});
     // Очередь новых номеров (2026-09-10) — тоже в схеме market и тоже после неё.
     await pool.query(ddl.ENTRY_EDIT_DDL_UP).catch(() => {});
+    // Комментарии (2026-09-10) — в той же схеме и тоже после неё.
+    await pool.query(ddl.COMMENTS_DDL_UP).catch(() => {});
   }
   const crowdDdl = await import("../lib/crowd-ddl.ts").catch(() => null);
   if (crowdDdl) {

@@ -6,6 +6,7 @@ import { karmaReady, pruneKarma } from "./karma.ts";
 import { pruneChat } from "./track-chat.ts";
 import { expireStaleClaims, marketReady, pruneRequests } from "./market.ts";
 import { entryEditsReady, expireStaleEntryEdits, pruneEntryEdits } from "./entry-edits.ts";
+import { commentsReady, pruneComments } from "./comments.ts";
 import { pruneRatings, ratingsReady } from "./ratings.ts";
 import {
   ACCOUNT_RETENTION_MONTHS,
@@ -119,6 +120,17 @@ async function tick(log: Logger): Promise<void> {
     if (await karmaReady(trackPool())) {
       const kp = await pruneKarma(trackPool());
       if (kp) log.info(`карма: удалено по сроку ${kp}`);
+    }
+    // Комментарии (2026-09-10): видимые живут год, скрытые — месяц (включая нерассмотренные:
+    // скрытое навсегда было бы тихим удалением), к удалённым записям — до ближайшего прогона.
+    if (await commentsReady(trackPool())) {
+      const cp = await pruneComments(trackPool());
+      if (cp.visible || cp.hidden || cp.orphans) {
+        log.info(
+          `комментарии: удалено по сроку видимых ${cp.visible}, скрытых ${cp.hidden}, ` +
+            `к удалённым записям ${cp.orphans}`,
+        );
+      }
     }
     // Аккаунты посетителей (решение владельца 2026-09-03): 12 месяцев без входа — удаление.
     // Гейт готовности снаружи, как у вызовов, рейтингов и краудсигналов: не подтверждена
