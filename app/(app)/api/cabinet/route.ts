@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { approveClaim, markRequest, marketReady, ownedEntries, rejectClaim, updateOwnCard, type CardPatch } from "@/lib/market";
 import { addWorker, removeWorker } from "@/lib/ratings";
+import {
+  MAX_PHONES_PER_ENTRY,
+  approveEntryEdit,
+  entryEditsReady,
+  rejectEntryEdit,
+} from "@/lib/entry-edits";
 
 // Действия кабинета. Владелец: card (правка своей карточки), seen/done (вызов).
-// Персонал: approve/reject (заявка на владение — после звонка по номеру).
+// Персонал: approve/reject (заявка на владение — после звонка по номеру),
+// edit_approve/edit_reject (новый номер к существующей организации — тоже после звонка).
 // Право — сессия; чья именно — проверяется в lib/market.ts по owner_id, не здесь.
 
 export const dynamic = "force-dynamic";
@@ -63,6 +70,23 @@ export async function POST(request: Request) {
       if (!Number.isInteger(id)) return bad("Нужен id заявки.");
       const ok = body.action === "approve" ? await approveClaim(payload, id) : await rejectClaim(id);
       return ok ? NextResponse.json({ ok: true }) : bad("Заявка не найдена.", 404);
+    }
+    case "edit_approve":
+    case "edit_reject": {
+      if (user.role !== "superadmin") return bad("Только персонал.", 403);
+      if (!Number.isInteger(id)) return bad("Нужен id правки.");
+      if (!(await entryEditsReady())) return bad("Очередь правок пока недоступна.", 503);
+      if (body.action === "edit_reject") {
+        return (await rejectEntryEdit(id))
+          ? NextResponse.json({ ok: true, result: "rejected" })
+          : bad("Правка не найдена.", 404);
+      }
+      const r = await approveEntryEdit(payload, id);
+      if (r === "not_found") return bad("Правка не найдена.", 404);
+      if (r === "full") {
+        return bad(`У карточки уже ${MAX_PHONES_PER_ENTRY} номеров — поправьте её в админке.`, 409);
+      }
+      return NextResponse.json({ ok: true, result: r });
     }
     default:
       return bad("Неизвестное действие.");

@@ -465,6 +465,105 @@ try {
       ok("карма проверена");
     }
 
+    // --- подсказки организаций и очередь новых номеров (2026-09-10)
+    //
+    // Схему market поднимаем СВОИМ вызовом: раздел спринта 8 выше заканчивается её сносом,
+    // а ENTRY_EDIT_DDL_UP схему не создаёт. Тот же порядок, что у кармы относительно crowd.
+    {
+      const { MARKET_DDL_UP, MARKET_DDL_DOWN, ENTRY_EDIT_DDL_UP } = await import("../lib/market-ddl.ts");
+      const edits = await import("../lib/entry-edits.ts");
+      const org = await import("../lib/org-search.ts");
+
+      // Поиск — чистая функция, базы ему не нужно.
+      const corpus = [
+        { id: 1, name: "Такси «Стрела»", category: "taxi", phones: ["+7 912 000-00-00"] },
+        { id: 2, name: "Магазин «Ромашка»", category: "shop", phones: [] },
+        { id: 3, name: "Стрелка", category: "shop", phones: [] },
+        { id: 4, name: "Автостоп", category: "taxi", phones: [] },
+      ];
+      const first = (q, c) => org.searchOrgs(corpus, q, c)[0]?.id ?? null;
+      const has = (q, id) => org.searchOrgs(corpus, q).some((h) => h.id === id);
+      eq(first("стрел"), 1, "подсказка: префикс, живая карточка выше пустой");
+      eq(has("стрелла", 1), true, "подсказка: лишняя буква (триграммы)");
+      eq(has("стрлеа", 1), true, "подсказка: перестановка букв (расстояние)");
+      eq(has("Cnhtkf", 1), true, "подсказка: набрано в латинской раскладке");
+      eq(has("авто стоп", 4), true, "подсказка: слово, разрезанное пробелом");
+      eq(has("такси", 1), true, "подсказка: запрос из одного родового слова");
+      eq(first("ромашка", "taxi"), 2, "категория — бонус к порядку, а не фильтр");
+      eq(org.searchOrgs(corpus, "а").length, 0, "запрос короче двух букв — пусто");
+      eq(org.nameKey("  ТАКСИ  «Стрёла» "), "такси стрела", "узкий ключ: регистр, ё, кавычки, пробелы");
+      eq(org.nameKey("Такси «Стрела»") === org.nameKey("Стрела"), false,
+        "узкий ключ не снимает родовые слова — магазин «Стрела» не сольётся с такси");
+
+      await pool.query(MARKET_DDL_DOWN);
+      await pool.query(MARKET_DDL_UP);
+      await pool.query(ENTRY_EDIT_DDL_UP);
+
+      eq(await edits.createEntryEdit(1, "+7 912 000-00-00", "по городу", pool), "created", "правка в очередь");
+      eq(await edits.createEntryEdit(1, "89120000000", null, pool), "exists",
+        "тот же номер в другой записи формата — та же строка очереди");
+      eq(await edits.createEntryEdit(1, "по договору", null, pool), "bad_phone", "не номер — отказ");
+      const { rows: [q1] } = await pool.query(`SELECT count(*)::int n, min(id) id FROM market.entry_edit`);
+      eq(q1.n, 1, "одинаковые предложения — одна строка очереди");
+
+      eq(await edits.rejectEntryEdit(q1.id, pool), true, "персонал отклонил");
+      eq(await edits.rejectEntryEdit(q1.id, pool), false, "повторное отклонение ничего не делает");
+      eq(await edits.createEntryEdit(1, "89120000000", null, pool), "created",
+        "после решения тот же номер можно предложить снова");
+
+      // Приёмка без Payload: заглушка с тем же контрактом, что у findByID и update.
+      const calls = [];
+      const fake = (entry) => ({
+        findByID: () => (entry ? Promise.resolve(entry) : Promise.reject(new Error("Not Found"))),
+        update: (a) => { calls.push(a); return Promise.resolve(a); },
+      });
+      const pending = async () =>
+        (await pool.query(`SELECT id FROM market.entry_edit WHERE status = 0 ORDER BY id DESC LIMIT 1`)).rows[0].id;
+
+      let id = await pending();
+      eq(await edits.approveEntryEdit(fake(null), id, pool), "gone",
+        "запись удалена, пока правка ждала: правка гаснет, а не роняет очередь");
+      const { rows: [g] } = await pool.query(`SELECT status FROM market.entry_edit WHERE id = $1`, [id]);
+      eq(g.status, 3, "погашена автоматом (3), а не приписана персоналу как отказ (2)");
+
+      await edits.createEntryEdit(1, "89120000000", null, pool);
+      id = await pending();
+      eq(await edits.approveEntryEdit(fake({ id: 1, phones: [{ id: "a", number: "+7 912 000-00-00" }] }), id, pool),
+        "already", "номер уже в карточке — второй раз не дописывается");
+      eq(calls.length, 0, "и карточка при этом не переписывается");
+
+      await edits.createEntryEdit(1, "8 (83347) 2-11-11", null, pool);
+      id = await pending();
+      eq(await edits.approveEntryEdit(fake({ id: 1, phones: [{ id: "a", number: "+7 912 000-00-00" }] }), id, pool),
+        "added", "новый номер дописан в карточку");
+      eq(JSON.stringify(calls[0]?.data?.phones),
+        JSON.stringify([{ id: "a", number: "+7 912 000-00-00" }, { number: "8 (83347) 2-11-11" }]),
+        "существующим номерам передан их id — адаптер не перевыпускает их без нужды");
+
+      await edits.createEntryEdit(1, "+7 922 111-22-33", null, pool);
+      id = await pending();
+      const full = Array.from({ length: edits.MAX_PHONES_PER_ENTRY }, (_, i) =>
+        ({ id: String(i), number: `+7 900 000-00-${String(i).padStart(2, "0")}` }));
+      eq(await edits.approveEntryEdit(fake({ id: 1, phones: full }), id, pool), "full", "карточка полна — отказ");
+      const { rows: [f] } = await pool.query(`SELECT status FROM market.entry_edit WHERE id = $1`, [id]);
+      eq(f.status, 0, "а правка осталась ждать: её можно принять после чистки карточки");
+
+      const old = new Date(Date.now() - (edits.EDIT_GRACE_DAYS + 1) * 86_400_000);
+      await pool.query(`UPDATE market.entry_edit SET at = $1 WHERE status = 0`, [old]);
+      eq(await edits.expireStaleEntryEdits(pool), 1, "не дошли руки за срок — погашена");
+      eq(await edits.expireStaleEntryEdits(pool), 0, "повторное гашение идемпотентно");
+
+      const ancient = new Date(Date.now() - (edits.EDIT_RETENTION_DAYS + 1) * 86_400_000);
+      await pool.query(`UPDATE market.entry_edit SET decided_at = $1 WHERE status <> 0`, [ancient]);
+      const { rows: [all] } = await pool.query(`SELECT count(*)::int n FROM market.entry_edit`);
+      eq(await edits.pruneEntryEdits(pool), all.n, "решённые правки старше срока удалены");
+
+      eq(await edits.entryEditsReady(pool), true, "готовность очереди видна");
+      await pool.query(MARKET_DDL_DOWN);
+      eq(await edits.entryEditsReady(pool), false, "и пропадает вместе со схемой");
+      ok("подсказки и очередь правок проверены");
+    }
+
     // вернуть поездку в исходное для дальнейших проверок регламента
     await pool.query(`UPDATE track.trip SET alarm_at = NULL, disclosed_at = NULL, all_ok_at = NULL, last_point_at = NULL WHERE id = $1`, [trip.id]);
     await pool.query(`DELETE FROM track.share WHERE trip_id = $1`, [trip.id]);
@@ -886,6 +985,8 @@ try {
   if (ddl) {
     await pool.query(ddl.MARKET_DDL_UP).catch(() => {});
     await pool.query(ddl.RATINGS_DDL_UP).catch(() => {});
+    // Очередь новых номеров (2026-09-10) — тоже в схеме market и тоже после неё.
+    await pool.query(ddl.ENTRY_EDIT_DDL_UP).catch(() => {});
   }
   const crowdDdl = await import("../lib/crowd-ddl.ts").catch(() => null);
   if (crowdDdl) {
