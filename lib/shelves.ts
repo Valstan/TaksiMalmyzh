@@ -12,16 +12,12 @@
 // что не покрыл ни один домен, сваливается в остаточную полку «Разное».
 
 import { CATEGORIES, SITES, siteHref, type EntryCategory, type Site } from "./sites.ts";
+import { CATEGORY_LABELS } from "./category-labels.ts";
 
-/** Человеческие названия категорий. Единственный экземпляр в продукте. */
-export const CATEGORY_LABELS: Record<EntryCategory, string> = {
-  taxi: "Такси",
-  shop: "Магазины",
-  master: "Мастера и ремонт",
-  brigade: "Бригады и работы",
-  cargo: "Доставка и грузы",
-  other: "Другое",
-};
+// Подписи категорий живут в `lib/category-labels.ts`: их читает и клиентская выпадашка
+// подсказок, а этот модуль тянет Payload. Отсюда они реэкспортируются, чтобы серверным
+// потребителям не менять импорт.
+export { CATEGORY_LABELS };
 
 /** Порядок полок и секций справочника. Источник один — реестр категорий. */
 export const CATEGORY_ORDER: readonly EntryCategory[] = CATEGORIES;

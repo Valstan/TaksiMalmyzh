@@ -8,10 +8,12 @@ import { marketReady, myClaims, ownedEntries, pendingClaims, requestsForOwner } 
 import CabinetOwner from "@/components/CabinetOwner";
 import CabinetStaff from "@/components/CabinetStaff";
 import { ratingsReady, ratingStats, type RatingStats } from "@/lib/ratings";
+import { entryEditsReady, pendingEntryEdits, type EntryEdit } from "@/lib/entry-edits";
 
 // Кабинет (спринт 8). Одна страница, два лица по роли:
 //  - бизнес (владелец записи): своя карточка и вызовы с адресом;
-//  - персонал: заявки «это мой бизнес», ждущие звонка.
+//  - персонал: заявки «это мой бизнес», ждущие звонка, и (с 2026-09-10) новые номера,
+//    предложенные посетителями к организациям, которые уже есть в справочнике.
 // Посетитель без карточек видит, как её получить.
 
 export const dynamic = "force-dynamic";
@@ -28,6 +30,7 @@ export default async function KabinetPage() {
   let owned: Awaited<ReturnType<typeof ownedEntries>> = [];
   let requests: Awaited<ReturnType<typeof requestsForOwner>> = [];
   let claims: Awaited<ReturnType<typeof pendingClaims>> = [];
+  let edits: EntryEdit[] = [];
   let pendingMine = 0;
   let ratings = new Map<number, RatingStats>();
   if (user && ready) {
@@ -36,7 +39,12 @@ export default async function KabinetPage() {
     if (owned.length && (await ratingsReady())) ratings = await ratingStats(owned.map((e) => e.id));
     requests = await requestsForOwner(payload, user.id);
     pendingMine = [...(await myClaims(user.id)).values()].filter((s) => s === 0).length;
-    if (user.role === "superadmin") claims = await pendingClaims(payload);
+    if (user.role === "superadmin") {
+      claims = await pendingClaims(payload);
+      // Очередь новых номеров — свой гейт готовности: страница не должна зависеть от того,
+      // доехала ли миграция.
+      if (await entryEditsReady()) edits = await pendingEntryEdits(payload);
+    }
   }
 
   return (
@@ -55,7 +63,7 @@ export default async function KabinetPage() {
 
       {user && !ready && <p className="page-sub">Кабинеты пока недоступны.</p>}
 
-      {user && ready && user.role === "superadmin" && <CabinetStaff claims={claims} />}
+      {user && ready && user.role === "superadmin" && <CabinetStaff claims={claims} edits={edits} />}
 
       {user && ready && owned.length === 0 && user.role !== "superadmin" && (
         <p className="page-sub">

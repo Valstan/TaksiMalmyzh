@@ -5,6 +5,7 @@ import { crowdReady, pruneCrowdSignals } from "./crowd-signals.ts";
 import { karmaReady, pruneKarma } from "./karma.ts";
 import { pruneChat } from "./track-chat.ts";
 import { expireStaleClaims, marketReady, pruneRequests } from "./market.ts";
+import { entryEditsReady, expireStaleEntryEdits, pruneEntryEdits } from "./entry-edits.ts";
 import { pruneRatings, ratingsReady } from "./ratings.ts";
 import {
   ACCOUNT_RETENTION_MONTHS,
@@ -95,6 +96,13 @@ async function tick(log: Logger): Promise<void> {
       // иначе оно было бы бессрочным и отменяло сам срок.
       const expired = await expireStaleClaims(trackPool());
       if (expired) log.info(`заявки на владение: истекло без ответа ${expired}`);
+      // Новые номера к организациям (2026-09-10): не дошли руки за срок — гасим; решённые
+      // старше срока — удаляем (в примечании свободный текст, бессрочно он не лежит).
+      if (await entryEditsReady(trackPool())) {
+        const ee = await expireStaleEntryEdits(trackPool());
+        const ep = await pruneEntryEdits(trackPool());
+        if (ee || ep) log.info(`правки справочника: погашено ${ee}, удалено ${ep}`);
+      }
     }
     // Рейтинги (спринт 9): голоса старше года — вон.
     if (await ratingsReady(trackPool())) {
