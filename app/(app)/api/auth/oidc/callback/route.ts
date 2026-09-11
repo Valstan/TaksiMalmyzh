@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { exchangeCode, oidcConfig, publicOrigin, randomToken, type Identity } from "@/lib/oidc";
 import { FLOW_COOKIE, flowCookieOptions, parseFlow } from "@/lib/oidc-flow";
 import { issuePayloadSession } from "@/lib/oidc-session";
+import { SESSION_COOKIE_OPTIONS } from "@/lib/session-cookie";
 import type { User } from "@/payload-types";
 
 // Возврат из ЕСА. Единственный redirect_uri клиента — сверяется на их стороне
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
   if (!cfg) return new NextResponse("Not Found", { status: 404 });
 
   const url = new URL(request.url);
-  const { origin, secure } = publicOrigin(request);
+  const { origin } = publicOrigin(request);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -155,10 +156,7 @@ export async function GET(request: Request) {
   const fallback = linked.role === "superadmin" ? "/admin" : "/";
   const res = NextResponse.redirect(new URL(flow.next ?? fallback, origin), 302);
   res.cookies.set(session.cookieName, session.token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure,
-    path: "/",
+    ...SESSION_COOKIE_OPTIONS,
     expires: session.expiresAt,
   });
   payload.logger.info(`oidc: пользователь ${linked.id} вошёл через единый вход`);

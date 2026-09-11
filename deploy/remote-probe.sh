@@ -282,6 +282,19 @@ if [ "$code" = "000" ]; then
 else
   test "$code" = "303" || fail "выход: роут ответил $code, ожидалось 303"
 
+  # Атрибуты сессионной куки (с 2026-09-11 имя `__Host-payload-token`, lib/session-cookie.ts).
+  # Префикс без `Secure` и `Path=/` браузер отбрасывает молча, и ни один код ответа этого
+  # не покажет — поэтому смотрим на сам заголовок. Роут выхода гасит куку теми же
+  # атрибутами, что вход её ставит, так что гашение здесь — свидетель за оба. Парольный вход
+  # в админку ставит куку сам Payload из `auth.cookies` коллекции — его эта строка не видит.
+  SETCOOKIE=$(curl -sS -D - -o /dev/null --max-time 30 -X POST "http://127.0.0.1:$PORT/api/auth/logout" 2>/dev/null \
+              | grep -i '^set-cookie: __Host-payload-token=' || true)
+  test -n "$SETCOOKIE" || fail "выход: в ответе нет Set-Cookie для __Host-payload-token"
+  echo "$SETCOOKIE" | grep -qi 'secure' || fail "выход: кука __Host-payload-token без Secure — браузер её отбросит"
+  echo "$SETCOOKIE" | grep -qi 'path=/;\|path=/$' || fail "выход: кука __Host-payload-token не с Path=/"
+  echo "$SETCOOKIE" | grep -qi 'domain=' && fail "выход: у куки __Host-payload-token есть Domain — префикс это запрещает"
+  echo "  кука       __Host-payload-token: Secure, Path=/, без Domain"
+
   case "$away" in
     *"/oidc/logout"*)
       esa=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 20 "$away" 2>/dev/null || true)

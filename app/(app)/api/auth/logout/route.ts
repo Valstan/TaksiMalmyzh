@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { endSessionUrl, oidcConfig, publicOrigin } from "@/lib/oidc";
+import { clearSessionCookies } from "@/lib/session-cookie";
 
 // Выход. POST, а не GET: ссылку на выход мог бы дёрнуть любой сторонний `<img src>`.
 // Форма в шапке проходит CSP `form-action`, куда ради последнего шага добавлен хост ЕСА
@@ -11,18 +12,20 @@ import { endSessionUrl, oidcConfig, publicOrigin } from "@/lib/oidc";
 // Последний шаг — выход из единого входа: гасим свою сессию и уводим человека на
 // `end_session` ЕСА, иначе его кука там осталась бы живой и молча вернула бы его
 // авторизованным (владелец, 2026-09-03). Отказ ЕСА выход у нас не отменяет.
+//
+// Имя куки — константа, а не значение из конфига, добытое внутри `try`: если бы конфиг
+// или база не поднялись, роут гасил бы не ту куку и человек, нажавший «выйти», остался
+// бы вошедшим. Кука снимается всегда, отзыв сессии — когда есть что отзывать.
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const { origin, secure } = publicOrigin(request);
-  let cookieName = "payload-token";
+  const { origin } = publicOrigin(request);
 
   try {
     const { getPayload } = await import("payload");
     const { default: config } = await import("@payload-config");
     const payload = await getPayload({ config });
-    cookieName = `${payload.config.cookiePrefix}-token`;
     const { user } = await payload.auth({ headers: request.headers });
     const sid = (user as { _sid?: string } | null)?._sid;
     if (user && sid) {
@@ -51,13 +54,5 @@ export async function POST(request: Request) {
     }
   }
 
-  const res = NextResponse.redirect(target, 303);
-  res.cookies.set(cookieName, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure,
-    path: "/",
-    maxAge: 0,
-  });
-  return res;
+  return clearSessionCookies(NextResponse.redirect(target, 303));
 }

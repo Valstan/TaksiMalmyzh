@@ -27,6 +27,8 @@ export function safeNext(raw: string | null | undefined): string | undefined {
 
 const FLOW_TTL_SECONDS = 10 * 60;
 
+// Префикс `__Host-` сюда не подходит: он требует `Path=/`, а кука прохода намеренно
+// ограничена путём роутов входа. `Secure` — всегда, как и у сессии.
 export function flowCookieOptions(request: Request) {
   return {
     httpOnly: true,

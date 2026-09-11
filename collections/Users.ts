@@ -23,6 +23,12 @@ export const Users: CollectionConfig = {
     // Подбор пароля тормозится штатным замком Payload.
     maxLoginAttempts: 10,
     lockTime: 10 * 60 * 1000,
+    // Атрибуты куки для ПАРОЛЬНОГО входа: её ставит сам Payload, и `Secure` он берёт
+    // только отсюда (умолчание — `false`). Имя куки — `__Host-payload-token`
+    // (`payload.config.ts`), а префикс `__Host-` без `Secure` браузер отбрасывает молча:
+    // без этой строки вход в админку по паролю ходил бы по кругу «вошёл — снова форма».
+    // `domain` не задавать никогда — тот же префикс его запрещает.
+    cookies: { secure: true, sameSite: "Lax" },
   },
   admin: { useAsTitle: "username" },
   hooks: {
