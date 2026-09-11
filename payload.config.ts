@@ -7,6 +7,7 @@ import { Users } from "./collections/Users";
 import { Entries } from "./collections/Entries";
 import { directoryDraft } from "./seed/directory-draft";
 import { migrations } from "./migrations";
+import { SESSION_COOKIE_PREFIX } from "./lib/session-cookie";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +67,10 @@ export default buildConfig({
     },
   },
   collections: [Users, Entries],
+  // Сессионная кука `__Host-payload-token` — почему и что обязано сходиться с этим
+  // префиксом, в `lib/session-cookie.ts`. Менять только вместе с `auth.cookies` в
+  // `collections/Users.ts`.
+  cookiePrefix: SESSION_COOKIE_PREFIX,
   secret: process.env.PAYLOAD_SECRET || "",
   db: postgresAdapter({
     pool: { connectionString: process.env.DATABASE_URI || "" },

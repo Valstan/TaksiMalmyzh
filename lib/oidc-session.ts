@@ -3,11 +3,12 @@
 // Payload умеет выдавать сессию только операцией login по паролю. Здесь повторён
 // ровно тот же путь, что проходит `login` (payload/dist/auth/operations/login.js):
 // запись сессии в `sessions` пользователя → подпись JWT тем же секретом → та же кука
-// `payload-token`. Поэтому для админки и для гейта записи поездок такой вход
-// неотличим от парольного: `payload.auth()` увидит обычного пользователя.
+// `__Host-payload-token` (`lib/session-cookie.ts`). Поэтому для админки и для гейта записи
+// поездок такой вход неотличим от парольного: `payload.auth()` увидит обычного пользователя.
 
 import { getFieldsToSign, jwtSign, type Payload } from "payload";
 import type { User } from "@/payload-types";
+import { SESSION_COOKIE } from "./session-cookie";
 
 export interface IssuedSession {
   cookieName: string;
@@ -58,5 +59,11 @@ export async function issuePayloadSession(payload: Payload, user: User): Promise
     tokenExpiration: ttlSeconds,
   });
 
-  return { cookieName: `${payload.config.cookiePrefix}-token`, token, expiresAt };
+  // Имя — из конфига Payload, как его читает `payload.auth()`; константа обязана совпадать,
+  // иначе выданную здесь куку никто не прочитает. Расхождение — ошибка сборки конфига.
+  const cookieName = `${payload.config.cookiePrefix}-token`;
+  if (cookieName !== SESSION_COOKIE) {
+    throw new Error(`сессионная кука: конфиг даёт ${cookieName}, код ждёт ${SESSION_COOKIE}`);
+  }
+  return { cookieName, token, expiresAt };
 }

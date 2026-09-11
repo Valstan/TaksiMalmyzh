@@ -26,18 +26,22 @@ export { DEFAULT_ISSUER };
 export const CALLBACK_PATH = "/api/auth/oidc/callback";
 
 /**
- * Публичный адрес корневого домена — для редиректов и флага Secure у кук.
+ * Публичный адрес корневого домена — для редиректов.
  *
  * ⚠️ Не `new URL(request.url).origin`: за nginx приложение видит себя как
  * `localhost:<порт>`, и первый живой вход 2026-09-02 вернул владельца ровно туда.
- * Локально (`next dev`) публичного адреса нет — тогда origin запроса и http.
+ * Локально (`next dev`) публичного адреса нет — тогда origin запроса.
+ *
+ * `secure` с 2026-09-11 всегда `true`, включая `http://localhost`: сессионная кука носит
+ * префикс `__Host-`, который без `Secure` не принимается, а localhost браузеры считают
+ * доверенным origin (`lib/session-cookie.ts`). Поле оставлено, чтобы куки прохода входа
+ * и сессии брали флаг из одного места.
  */
-export function publicOrigin(request: Request): { origin: string; secure: boolean } {
+export function publicOrigin(request: Request): { origin: string; secure: true } {
   if (process.env.NODE_ENV === "production") {
     return { origin: `https://${ROOT_SITE.host}`, secure: true };
   }
-  const u = new URL(request.url);
-  return { origin: u.origin, secure: u.protocol === "https:" };
+  return { origin: new URL(request.url).origin, secure: true };
 }
 
 export interface OidcConfig {

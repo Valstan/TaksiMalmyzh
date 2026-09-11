@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eraseUser, ownsEntries } from "@/lib/account-retention";
 import { publicOrigin } from "@/lib/oidc";
+import { clearSessionCookies } from "@/lib/session-cookie";
 import { trackPool } from "@/lib/track-db";
 
 // Удаление собственного аккаунта по просьбе человека (решение владельца 2026-09-03).
@@ -22,7 +23,7 @@ const back = (origin: string, status: string) =>
   NextResponse.redirect(new URL(`/dannye?${status}`, origin), 303);
 
 export async function POST(request: Request) {
-  const { origin, secure } = publicOrigin(request);
+  const { origin } = publicOrigin(request);
 
   const { getPayload } = await import("payload");
   const { default: config } = await import("@payload-config");
@@ -49,13 +50,5 @@ export async function POST(request: Request) {
 
   // Кука снимается вручную: пользователя, которому она принадлежала, больше нет, и без
   // этого браузер продолжал бы слать мёртвый токен до истечения.
-  const res = back(origin, "delete=ok");
-  res.cookies.set(`${payload.config.cookiePrefix}-token`, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure,
-    path: "/",
-    maxAge: 0,
-  });
-  return res;
+  return clearSessionCookies(back(origin, "delete=ok"));
 }
